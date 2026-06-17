@@ -6,6 +6,16 @@ and point training scripts to their `data.yaml` files.
 
 ## Recommended Testing Video Sources
 
+Included quick clips:
+
+- `static/uploads/sample_video.mp4`
+- `YOLOv8_Traffic_Density_Estimation/sample_video.mp4`
+- `static/uploads/18437773-uhd_3840_2160_50fps.mp4`
+
+Use these first from `Live -> Upload and Analyze -> Video Analysis`. For CPU,
+start with `Sample every: 15` and `Max frames: 120`; use `Max frames: -1` only
+when you intentionally want the whole clip analyzed.
+
 1. AI City Challenge
    - Real traffic-camera videos and multi-camera city scenarios.
    - Good for testing live/video upload, congestion and lane density.
@@ -40,6 +50,16 @@ and point training scripts to their `data.yaml` files.
 7. Pexels or other open-license traffic videos
    - Useful for short demo clips.
    - Confirm license before publishing or submitting results.
+
+Good search terms for quick downloads:
+
+```text
+Pexels traffic street cars video
+Pexels highway traffic video
+Pixabay traffic road cars video
+UA-DETRAC sample traffic video
+BDD100K sample driving video
+```
 
 ## Quick Test Video Guidance
 

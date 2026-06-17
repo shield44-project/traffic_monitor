@@ -303,6 +303,14 @@ body {
   object-fit: contain;
 }
 
+.video-frame video.capture-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
 .camera-placeholder {
   position: absolute;
   inset: 0;
@@ -355,6 +363,13 @@ body {
 .snapshot-grid strong {
   display: block;
   font-size: 1.35rem;
+}
+
+.metric-note {
+  color: var(--text-soft);
+  font-size: 0.82rem;
+  line-height: 1.4;
+  margin: -0.25rem 0 1rem;
 }
 
 .lane-grid,

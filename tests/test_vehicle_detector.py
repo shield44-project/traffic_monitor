@@ -10,7 +10,37 @@ def test_vehicle_detector_maps_custom_labels():
     assert detector._class_label(0) == "car"
     assert detector._class_label(1) == "motorcycle"
     assert detector._class_label(2) == "truck"
-    assert detector._class_label(3) == "vehicle"
+    assert detector._class_label(3) is None
+
+
+def test_generic_vehicle_label_can_be_enabled(monkeypatch):
+    monkeypatch.setattr("config.ALLOW_GENERIC_VEHICLE_CLASS", True)
+    detector = VehicleDetector(model_path="missing.pt")
+    detector._model_names = {0: "vehicle"}
+
+    assert detector._class_label(0) == "vehicle"
+
+
+def test_vehicle_box_filter_rejects_face_sized_full_frame_generic(monkeypatch):
+    monkeypatch.setattr("config.ALLOW_GENERIC_VEHICLE_CLASS", True)
+
+    assert not VehicleDetector._is_valid_box(
+        "vehicle",
+        0.95,
+        (40, 10, 600, 470),
+        width=640,
+        height=480,
+    )
+
+
+def test_vehicle_box_filter_accepts_reasonable_car_box():
+    assert VehicleDetector._is_valid_box(
+        "car",
+        0.90,
+        (120, 220, 360, 350),
+        width=640,
+        height=480,
+    )
 
 
 def test_roi_density_counts_lanes():

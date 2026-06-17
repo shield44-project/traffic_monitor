@@ -16,7 +16,7 @@ import numpy as np
 
 import config
 from core.device import resolve_device
-from core.exceptions import ModelLoadError, StreamError
+from core.exceptions import ModelLoadError, StreamError, ValidationError
 from core.logger import get_logger
 from detection.tracker import CentroidTracker
 
@@ -29,6 +29,7 @@ class Detection:
     confidence: float
     box: tuple[int, int, int, int]
     class_id: int
+    track_id: int | None = None
 
     def as_dict(self) -> dict:
         data = asdict(self)
@@ -86,6 +87,8 @@ class VehicleDetector:
         self.tracker = CentroidTracker()
         self._model = None
         self._model_names: dict[int, str] = {}
+        self._generic_only_model = False
+        self._model_warning: str | None = None
 
     @property
     def model(self):
@@ -98,6 +101,7 @@ class VehicleDetector:
                 self._model_names = {
                     int(key): str(value) for key, value in raw_names.items()
                 }
+                self._validate_model_labels()
                 log.info("Loaded vehicle YOLO model: %s", self.model_path)
             except Exception as exc:
                 raise ModelLoadError(
@@ -105,14 +109,87 @@ class VehicleDetector:
                 ) from exc
         return self._model
 
+    @property
+    def model_warning(self) -> str | None:
+        return self._model_warning
+
+    @property
+    def model_labels(self) -> dict[int, str]:
+        return dict(self._model_names)
+
+    def _validate_model_labels(self) -> None:
+        labels = {name.strip().lower() for name in self._model_names.values()}
+        mapped = {
+            config.VEHICLE_LABEL_ALIASES[label]
+            for label in labels
+            if label in config.VEHICLE_LABEL_ALIASES
+        }
+        has_concrete = bool(mapped - {"vehicle"})
+        self._generic_only_model = bool(mapped == {"vehicle"} and not has_concrete)
+        if self._generic_only_model and not config.ALLOW_GENERIC_VEHICLE_CLASS:
+            self._model_warning = (
+                "Loaded vehicle model exposes only a generic 'vehicle' class. "
+                "Generic detections are disabled by default to avoid webcam "
+                "false positives. Install a COCO/multi-class vehicle model, "
+                "or set ALLOW_GENERIC_VEHICLE_CLASS=true for top-view traffic clips."
+            )
+            log.warning(self._model_warning)
+        elif not mapped:
+            self._model_warning = (
+                "Loaded YOLO model does not expose known vehicle labels. "
+                "Only COCO vehicle class ids will be accepted."
+            )
+            log.warning(self._model_warning)
+        else:
+            self._model_warning = None
+
     def _class_label(self, cls_id: int) -> str | None:
         raw_label = self._model_names.get(cls_id, "").strip().lower()
         if raw_label:
             mapped = config.VEHICLE_LABEL_ALIASES.get(raw_label)
             if mapped:
+                if mapped == "vehicle" and not config.ALLOW_GENERIC_VEHICLE_CLASS:
+                    return None
                 return mapped
             return None
         return config.VEHICLE_CLASSES.get(cls_id)
+
+    @staticmethod
+    def _is_valid_box(
+        label: str,
+        confidence: float,
+        box: tuple[float, float, float, float],
+        width: int,
+        height: int,
+    ) -> bool:
+        x1, y1, x2, y2 = box
+        box_w = max(0.0, x2 - x1)
+        box_h = max(0.0, y2 - y1)
+        if box_w <= 1.0 or box_h <= 1.0:
+            return False
+        min_conf = config.VEHICLE_TYPE_MIN_CONFIDENCE.get(label, config.VEHICLE_CONF)
+        if confidence < min_conf:
+            return False
+        area_ratio = (box_w * box_h) / max(1.0, float(width * height))
+        max_area = (
+            config.GENERIC_VEHICLE_MAX_BOX_AREA_RATIO
+            if label == "vehicle"
+            else config.VEHICLE_MAX_BOX_AREA_RATIO
+        )
+        if not (config.VEHICLE_MIN_BOX_AREA_RATIO <= area_ratio <= max_area):
+            return False
+        aspect = box_w / max(1.0, box_h)
+        min_aspect = (
+            config.GENERIC_VEHICLE_MIN_ASPECT_RATIO
+            if label == "vehicle"
+            else config.VEHICLE_MIN_ASPECT_RATIO
+        )
+        max_aspect = (
+            config.GENERIC_VEHICLE_MAX_ASPECT_RATIO
+            if label == "vehicle"
+            else config.VEHICLE_MAX_ASPECT_RATIO
+        )
+        return min_aspect <= aspect <= max_aspect
 
     @staticmethod
     def _scaled_point(point: tuple[int, int], width: int, height: int) -> tuple[int, int]:
@@ -173,7 +250,12 @@ class VehicleDetector:
     def set_counting_line(self, y: int) -> None:
         self.tracker.set_counting_line(y)
 
-    def detect(self, frame: np.ndarray, frame_index: int = 0) -> FrameAnalysis:
+    def detect(
+        self,
+        frame: np.ndarray,
+        frame_index: int = 0,
+        tracker: CentroidTracker | None = None,
+    ) -> FrameAnalysis:
         """Run YOLOv8 on one BGR frame and return vehicle detections/counts."""
         if frame is None or frame.size == 0:
             raise StreamError("Empty frame received for vehicle detection")
@@ -199,6 +281,7 @@ class VehicleDetector:
                 self._model_names = {
                     int(key): str(value) for key, value in result_names.items()
                 }
+                self._validate_model_labels()
             boxes = getattr(results[0], "boxes", None)
             if boxes is not None:
                 for box in boxes:
@@ -208,6 +291,8 @@ class VehicleDetector:
                         continue
                     conf = float(box.conf[0].item())
                     x1, y1, x2, y2 = box.xyxy[0].detach().cpu().numpy().tolist()
+                    if not self._is_valid_box(label, conf, (x1, y1, x2, y2), width, height):
+                        continue
                     xyxy = (
                         int(max(0, min(width - 1, x1))),
                         int(max(0, min(height - 1, y1))),
@@ -225,7 +310,10 @@ class VehicleDetector:
                     counts[label] += 1
                     boxes_for_tracking.append((x1, y1, x2, y2))
 
-        tracks = self.tracker.update(boxes_for_tracking)
+        active_tracker = tracker or self.tracker
+        tracks, assignments = active_tracker.update_with_assignments(boxes_for_tracking)
+        for detection, track_id in zip(detections, assignments):
+            detection.track_id = track_id
         roi_density = self._roi_density(detections, width, height)
         return FrameAnalysis(
             counts=counts,
@@ -234,7 +322,7 @@ class VehicleDetector:
             frame_index=frame_index,
             width=width,
             height=height,
-            total_crossings=self.tracker.total_crossings,
+            total_crossings=active_tracker.total_crossings,
             roi_density=roi_density,
         )
 
@@ -277,7 +365,35 @@ class VehicleDetector:
                 cv2.LINE_AA,
             )
         self._draw_roi_overlay(output, result)
+        self._draw_summary_overlay(output, result)
         return output
+
+    def _draw_summary_overlay(self, frame: np.ndarray, result: FrameAnalysis) -> None:
+        total = sum(result.counts.values())
+        active_counts = ", ".join(
+            f"{name}:{count}" for name, count in result.counts.items() if count
+        ) or "none"
+        lines = [
+            f"Vehicles visible: {total} ({active_counts})",
+            f"Model: {Path(str(self.model_path)).name}",
+        ]
+        if self._model_warning:
+            lines.append("Warning: generic vehicle class disabled")
+
+        height = 30 + 24 * len(lines)
+        cv2.rectangle(frame, (10, 10), (min(frame.shape[1] - 10, 660), height), (2, 6, 23), -1)
+        cv2.rectangle(frame, (10, 10), (min(frame.shape[1] - 10, 660), height), (48, 209, 88), 1)
+        for idx, line in enumerate(lines):
+            cv2.putText(
+                frame,
+                line,
+                (20, 35 + 24 * idx),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.58,
+                (255, 255, 255) if idx < 2 else (0, 220, 255),
+                2 if idx == 0 else 1,
+                cv2.LINE_AA,
+            )
 
     def _draw_roi_overlay(self, output: np.ndarray, result: FrameAnalysis) -> None:
         roi = result.roi_density or {}
@@ -371,3 +487,35 @@ def normalize_source(source: str | int) -> str | int:
     if text.isdigit():
         return int(text)
     return text
+
+
+def validate_vehicle_model_file(path: str | Path) -> dict:
+    """Load a YOLO checkpoint and verify that it has accepted vehicle labels."""
+    try:
+        from ultralytics import YOLO
+
+        model = YOLO(str(path))
+        names = {int(key): str(value) for key, value in (getattr(model, "names", {}) or {}).items()}
+    except Exception as exc:
+        raise ValidationError(f"Could not inspect vehicle model '{path}': {exc}") from exc
+
+    labels = {name.strip().lower() for name in names.values()}
+    mapped = {
+        config.VEHICLE_LABEL_ALIASES[label]
+        for label in labels
+        if label in config.VEHICLE_LABEL_ALIASES
+    }
+    if not mapped:
+        raise ValidationError(
+            "Vehicle model does not expose supported labels. Expected COCO vehicle "
+            "classes or labels such as car, bus, truck, motorcycle, bicycle, mobil, "
+            "motor, truk, or vehicle."
+        )
+    if mapped == {"vehicle"} and not config.ALLOW_GENERIC_VEHICLE_CLASS:
+        raise ValidationError(
+            "This checkpoint exposes only a generic 'vehicle' class. That model is "
+            "too broad for webcam/live monitoring and caused false positives. Use a "
+            "COCO or multi-class traffic model, or set ALLOW_GENERIC_VEHICLE_CLASS=true "
+            "only for controlled top-view traffic videos."
+        )
+    return {"names": names, "mapped_labels": sorted(mapped)}

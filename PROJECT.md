@@ -19,7 +19,7 @@ The main aim of this project is **to mitigate the environmental impact of urban 
 - Added an admin install flow for a custom vehicle/traffic YOLO `.pt` model from upload or trusted URL.
 - Kept the emergency YOLO `.pt` install flow for ambulance/fire truck/police detection.
 - Added left/right lane ROI density analysis based on `YOLOv8_Traffic_Density_Estimation`.
-- Added custom label mapping for models that output `mobil`, `motor`, `truk`, or generic `vehicle`.
+- Added custom label mapping for models that output `mobil`, `motor`, or `truk`, with generic `vehicle` disabled by default to prevent webcam false positives.
 - Added live lane markers, lane counts, lane intensity, emergency markers, congestion, CO2e and fuel-waste estimates.
 - Made uploaded videos more flexible. The app now accepts any file extension and lets OpenCV/FFmpeg decide whether frames can be decoded.
 - Improved browser/phone camera handling. Browser camera frames are analyzed by the same backend and update the live dashboard.
@@ -142,10 +142,9 @@ Primary model priority:
 
 1. `models/yolo/traffic_density_best.pt` if installed from the Models page.
 2. `Smart-Traffic-Intelligence-System/best.pt` if available.
-3. `YOLOv8_Traffic_Density_Estimation/models/best.pt` if available.
-4. `models/yolo/yolov8n.pt` fallback, which Ultralytics can download from its GitHub assets when network access is available.
+3. `models/yolo/yolov8n.pt` fallback, which Ultralytics can download from its GitHub assets when network access is available.
 
-Supported labels include COCO classes like `car`, `motorcycle`, `bus`, `truck`, `bicycle`, plus custom labels like `mobil`, `motor`, `truk` and generic `vehicle`.
+Supported labels include COCO classes like `car`, `motorcycle`, `bus`, `truck`, `bicycle`, plus custom labels like `mobil`, `motor` and `truk`. Generic one-class `vehicle` checkpoints are disabled by default because they are too broad for live webcam monitoring and can detect faces or indoor objects as vehicles. Use `ALLOW_GENERIC_VEHICLE_CLASS=true` only for controlled top-view traffic videos.
 
 ### Emergency Vehicle YOLO
 
@@ -190,7 +189,7 @@ The app estimates:
 - N2O,
 - CO2e.
 
-It uses trained XGBoost models if present. Otherwise it uses a documented factor-table fallback by vehicle class. Generic `vehicle` detections also receive a default mixed-traffic emission factor.
+It uses trained XGBoost models if present. Otherwise it uses a documented factor-table fallback by vehicle class. A generic `vehicle` factor exists only for explicitly enabled one-class traffic models.
 
 ### Traffic Forecasting
 
@@ -214,7 +213,7 @@ Dataset documentation is also in `datasets/README.md`.
 
 - `static/uploads/cctv052x2004080516x01638.avi`: sample AVI file already present in this repo for quick upload/live-file testing.
 - `YOLOv8_Traffic_Density_Estimation/sample_video.mp4`: sample traffic video from the reference project.
-- `YOLOv8_Traffic_Density_Estimation/models/best.pt`: traffic-density YOLO model from the reference project.
+- `YOLOv8_Traffic_Density_Estimation/models/best.pt`: one-class top-view traffic-density YOLO model from the reference project. It is useful for its sample road clip, but should be enabled explicitly for that use case.
 - `Smart-Traffic-Intelligence-System/best.pt`: alternate vehicle model from the second reference project.
 - `training/generate_sample_data.py`: creates synthetic historical traffic/emission records for dashboard testing.
 

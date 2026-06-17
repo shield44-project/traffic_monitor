@@ -9,7 +9,7 @@ To reduce the carbon and toxic footprint of urban traffic by predicting congesti
 
 ## Features
 
-- Vehicle detection with pretrained YOLOv8n or YOLOv8s COCO weights.
+- Vehicle detection with a precision-first YOLO policy: COCO/multi-class vehicle checkpoints by default, generic one-class checkpoints only when explicitly enabled.
 - Emergency vehicle detection through YOLOv8 transfer learning.
 - Vehicle counts, lane occupancy proxy, traffic density and congestion levels.
 - LSTM predictions for 5, 10 and 15 minute congestion horizons.
@@ -97,9 +97,15 @@ simulate emergency detections when `best.pt` is missing.
 
 Install a vehicle/traffic-density `.pt` from the Model Performance page. The
 app checks models in this order: `models/yolo/traffic_density_best.pt`, the
-local `Smart-Traffic-Intelligence-System/best.pt`, the local
-`YOLOv8_Traffic_Density_Estimation/models/best.pt`, then the Ultralytics YOLO
-fallback.
+local multi-class `Smart-Traffic-Intelligence-System/best.pt`, then the
+Ultralytics YOLO fallback. The top-view `YOLOv8_Traffic_Density_Estimation`
+checkpoint has only a generic `Vehicle` label, so it is no longer a default for
+webcam/live monitoring. To use that one-class model for controlled top-view
+traffic clips, set `ALLOW_GENERIC_VEHICLE_CLASS=true`.
+
+The app validates model labels before installing checkpoints. Do not upload the
+generic traffic-density model as the emergency model; emergency detection expects
+`ambulance`, `fire_truck`, or `police` labels.
 
 Traffic forecasting:
 
@@ -179,8 +185,10 @@ model choices, public URL options, Docker usage and deployment guidance. See
 
 The dashboard remains usable before custom training by using transparent
 fallbacks for LSTM and an EPA/MOVES/EEA-style emission factor table. Emissions
-are engineering estimates in g/km-equivalent by detected vehicle class; exact
-regulatory inventories require local MOVES/COPERT inputs such as fuel, vehicle
-age, temperature, road grade and drive cycle. Emergency detection requires
-`models/yolo/emergency/best.pt` for real ambulance/fire truck/police detection;
-the fallback is only for interface demonstration.
+are engineering estimates in g/km-equivalent by detected visible vehicle class.
+For live frames, CO2e is the current visible-frame estimate; for uploaded videos,
+the report estimates g/km-equivalent emissions from unique tracked vehicle
+counts. Exact regulatory inventories require local MOVES/COPERT inputs such as
+fuel, vehicle age, temperature, road grade and drive cycle. Emergency detection
+requires `models/yolo/emergency/best.pt` for real ambulance/fire truck/police
+detection; the app does not simulate those detections.

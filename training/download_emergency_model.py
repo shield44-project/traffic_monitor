@@ -42,16 +42,35 @@ def _install_checkpoint(target: Path, url: str | None = None, source_file: str |
     if tmp.stat().st_size < 1_000_000:
         tmp.unlink(missing_ok=True)
         raise ValueError("Downloaded file is too small to be a valid YOLO .pt checkpoint")
+    return tmp
+
+
+def install_model(url: str | None = None, source_file: str | None = None) -> Path:
+    target = Path(config.EMERGENCY_MODEL)
+    tmp = _install_checkpoint(target, url=url, source_file=source_file)
+    try:
+        from detection.emergency_detector import validate_emergency_model_file
+
+        validate_emergency_model_file(tmp)
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
     tmp.replace(target)
     return target
 
 
-def install_model(url: str | None = None, source_file: str | None = None) -> Path:
-    return _install_checkpoint(Path(config.EMERGENCY_MODEL), url=url, source_file=source_file)
-
-
 def install_vehicle_model(url: str | None = None, source_file: str | None = None) -> Path:
-    return _install_checkpoint(config.TRAFFIC_DENSITY_MODEL, url=url, source_file=source_file)
+    target = Path(config.TRAFFIC_DENSITY_MODEL)
+    tmp = _install_checkpoint(target, url=url, source_file=source_file)
+    try:
+        from detection.vehicle_detector import validate_vehicle_model_file
+
+        validate_vehicle_model_file(tmp)
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
+    tmp.replace(target)
+    return target
 
 
 def main() -> None:

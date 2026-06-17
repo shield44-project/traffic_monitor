@@ -22,7 +22,7 @@
       <span id="liveState" class="badge text-bg-secondary">Idle</span>
     </div>
     <div class="video-frame live-video-frame">
-      <img id="liveFrame" src="{{ url_for('api_live_frame') }}" alt="Live monitoring frame">
+      <img id="liveFrame" src="{{ url_for('api_live_frame') }}" data-stream-url="{{ url_for('api_live_frame') }}" alt="Live monitoring frame">
       <video id="browserCamera" class="d-none" autoplay muted playsinline></video>
       <div class="camera-placeholder" id="cameraPlaceholder">
         <i class="bi bi-camera-video"></i>
@@ -43,7 +43,9 @@
           <option value="{{ camera.source }}">{{ camera.name }} - {{ camera.location or camera.source }}</option>
           {% endfor %}
           <option value="0">Server Webcam 0</option>
-          <option value="static/uploads/cctv052x2004080516x01638.avi">Sample AVI Upload</option>
+          {% for source in sample_video_sources %}
+          <option value="{{ source }}">Sample video - {{ source }}</option>
+          {% endfor %}
         </select>
         <input class="form-control" name="manualSource" placeholder="RTSP URL, webcam index, or video path">
         <div class="button-row">
@@ -97,8 +99,9 @@
       <div><span>Vehicles</span><strong id="liveVehicles">0</strong></div>
       <div><span>Density</span><strong id="liveDensity">0%</strong></div>
       <div><span>Congestion</span><strong id="liveCongestion">Low</strong></div>
-      <div><span>CO2e</span><strong id="liveCo2">0</strong></div>
+      <div><span>CO2e</span><strong id="liveCo2">0 g/km-eq</strong></div>
     </div>
+    <p class="metric-note" id="liveEmissionBasis">CO2e is estimated for currently visible detected vehicles, not a measured trip total.</p>
     <div class="lane-grid">
       <div>
         <span>Left Lane</span>
@@ -146,6 +149,7 @@
       <div class="mini-inputs">
         <label>Sample every <input class="form-control" type="number" name="every_n_frames" min="1" value="15"></label>
         <label>Max frames (-1 for all) <input class="form-control" type="number" name="max_frames" min="-1" value="120"></label>
+        <label>Process width <input class="form-control" type="number" name="analysis_width" min="0" max="3840" value="960"></label>
       </div>
       <button class="btn btn-primary" type="submit"><i class="bi bi-play-btn"></i> Analyze Video</button>
     </form>
@@ -162,20 +166,23 @@
       </div>
       <div class="modal-body">
         <div class="report-grid mb-4">
+          <div><span>Unique Vehicles</span><strong id="vResUniqueVehicles">--</strong> <small class="text-secondary">tracked across sampled frames</small></div>
           <div><span>Avg Congestion</span><strong id="vResCongestion">--</strong></div>
           <div><span>Traffic Density</span><strong id="vResDensity">--</strong></div>
           <div><span>Avg Speed</span><strong id="vResSpeed">--</strong> <small class="text-secondary">estimated km/h</small></div>
-          <div><span>Total CO2e</span><strong id="vResEmissions">--</strong> <small class="text-secondary">total for sampled frames</small></div>
-          <div><span>Fuel Waste</span><strong id="vResFuel">--</strong> <small class="text-secondary">total idle waste (all vehicles)</small></div>
+          <div><span>CO2e</span><strong id="vResEmissions">--</strong> <small class="text-secondary">per-km estimate for unique vehicles</small></div>
+          <div><span>Avg Visible / Frame</span><strong id="vResAvgVisible">--</strong> <small class="text-secondary">not unique</small></div>
+          <div><span>Fuel Waste</span><strong id="vResFuel">--</strong> <small class="text-secondary">avg idle estimate per sampled frame</small></div>
           <div><span>Peak Frame</span><strong id="vResPeak">--</strong> <small class="text-secondary">highest vehicle count at frame X</small></div>
           <div><span>Lane Balance</span><strong id="vResLanes">--</strong></div>
         </div>
+        <p class="metric-note" id="vResBasis">Vehicle totals are unique tracked objects. CO2e is an estimated g/km-equivalent, not measured exhaust.</p>
         <div class="content-grid two">
           <div>
             <h6>Vehicle & Emission Breakdown</h6>
             <div class="table-responsive">
               <table class="table table-dark table-sm table-borderless">
-                <thead><tr class="text-secondary"><th>Type</th><th>Count</th><th>Share</th><th>CO2e (g)</th></tr></thead>
+                <thead><tr class="text-secondary"><th>Type</th><th>Count</th><th>Share</th><th>CO2e contribution</th></tr></thead>
                 <tbody id="vResTable"></tbody>
               </table>
             </div>

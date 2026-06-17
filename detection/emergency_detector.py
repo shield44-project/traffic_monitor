@@ -14,7 +14,7 @@ import numpy as np
 
 import config
 from core.device import resolve_device
-from core.exceptions import ModelLoadError, ModelNotFoundError, StreamError
+from core.exceptions import ModelLoadError, ModelNotFoundError, StreamError, ValidationError
 from core.logger import get_logger
 
 log = get_logger("emergency_detector")
@@ -48,6 +48,7 @@ class EmergencyDetector:
         self.imgsz = imgsz or config.INFER_IMGSZ
         self.device = device or resolve_device()
         self._model = None
+        self._model_names: dict[int, str] = {}
 
     @property
     def model(self):
@@ -62,12 +63,35 @@ class EmergencyDetector:
                 from ultralytics import YOLO
 
                 self._model = YOLO(str(self.model_path))
+                self._model_names = {
+                    int(key): str(value)
+                    for key, value in (getattr(self._model, "names", {}) or {}).items()
+                }
+                self._validate_model_labels()
                 log.info("Loaded emergency YOLO model: %s", self.model_path)
             except Exception as exc:
+                self._model = None
+                self._model_names = {}
                 raise ModelLoadError(
                     f"Could not load emergency YOLO model '{self.model_path}': {exc}"
                 ) from exc
         return self._model
+
+    def _validate_model_labels(self) -> None:
+        labels = {name.strip().lower().replace(" ", "_") for name in self._model_names.values()}
+        mapped = {
+            config.EMERGENCY_LABEL_ALIASES[label]
+            for label in labels
+            if label in config.EMERGENCY_LABEL_ALIASES
+        }
+        expected = set(config.EMERGENCY_CLASSES)
+        if not mapped & expected:
+            raise ModelLoadError(
+                "Emergency YOLO checkpoint has labels "
+                f"{sorted(labels) or 'unknown'}, but expected at least one of "
+                f"{sorted(expected)}. Install a real emergency-vehicle model; "
+                "do not use the generic traffic-density checkpoint here."
+            )
 
     def detect(self, frame: np.ndarray) -> list[EmergencyDetection]:
         if frame is None or frame.size == 0:
@@ -85,12 +109,15 @@ class EmergencyDetector:
         )
         detections: list[EmergencyDetection] = []
         if results and getattr(results[0], "boxes", None) is not None:
-            names = getattr(results[0], "names", None) or {
+            names = getattr(results[0], "names", None) or self._model_names or {
                 i: name for i, name in enumerate(config.EMERGENCY_CLASSES)
             }
             for box in results[0].boxes:
                 cls_id = int(box.cls[0].item())
-                label = str(names.get(cls_id, config.EMERGENCY_CLASSES[cls_id]))
+                raw_label = str(names.get(cls_id, "")).strip().lower().replace(" ", "_")
+                label = config.EMERGENCY_LABEL_ALIASES.get(raw_label)
+                if label not in config.EMERGENCY_CLASSES:
+                    continue
                 conf = float(box.conf[0].item())
                 x1, y1, x2, y2 = box.xyxy[0].detach().cpu().numpy().tolist()
                 detections.append(
@@ -138,3 +165,28 @@ class EmergencyDetector:
                 cv2.LINE_AA,
             )
         return output
+
+
+def validate_emergency_model_file(path: str | Path) -> dict:
+    """Load a YOLO checkpoint and verify emergency-vehicle labels."""
+    try:
+        from ultralytics import YOLO
+
+        model = YOLO(str(path))
+        names = {int(key): str(value) for key, value in (getattr(model, "names", {}) or {}).items()}
+    except Exception as exc:
+        raise ValidationError(f"Could not inspect emergency model '{path}': {exc}") from exc
+
+    labels = {name.strip().lower().replace(" ", "_") for name in names.values()}
+    mapped = {
+        config.EMERGENCY_LABEL_ALIASES[label]
+        for label in labels
+        if label in config.EMERGENCY_LABEL_ALIASES
+    }
+    expected = set(config.EMERGENCY_CLASSES)
+    if not mapped & expected:
+        raise ValidationError(
+            "Emergency model labels do not match ambulance/fire_truck/police. "
+            f"Found: {', '.join(sorted(labels)) or 'unknown'}."
+        )
+    return {"names": names, "matched_labels": sorted(mapped & expected)}

@@ -1,10 +1,10 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="page-head">
-  <div><h1>Emission Analytics</h1><p>Real-world factor-based estimates by pollutant and vehicle class.</p></div>
+  <div><h1>Emission Analytics</h1><p>Vehicle-class estimates in g/km-equivalent for detected visible traffic snapshots.</p></div>
 </div>
 <section class="metric-grid">
-  <article class="metric-card"><span>Avg CO2e</span><strong>{{ "%.1f"|format(summary.avg_co2e) }}</strong><small>g/km climate equivalent</small></article>
+  <article class="metric-card"><span>Avg CO2e</span><strong>{{ "%.1f"|format(summary.avg_co2e) }}</strong><small>g/km-eq visible-frame estimate</small></article>
   <article class="metric-card"><span>Avg NOx</span><strong>{{ "%.2f"|format(summary.avg_nox) }}</strong><small>respiratory irritant</small></article>
   <article class="metric-card"><span>Avg PM2.5</span><strong>{{ "%.4f"|format(summary.avg_pm25) }}</strong><small>fine particle exposure</small></article>
   <article class="metric-card"><span>Emission Score</span><strong>{{ "%.1f"|format(summary.avg_score) }}</strong><small>0-100 composite risk</small></article>
@@ -52,7 +52,7 @@
 <section class="panel mt-4">
   <div class="panel-head">
     <h2>Specific Vehicle Emissions</h2>
-    <span class="text-secondary small">Recent database totals by detected vehicle type</span>
+    <span class="text-secondary small">Recent stored g/km-equivalent sums by detected vehicle type</span>
   </div>
   <div class="table-responsive wide-table">
     <table class="table table-sm align-middle">
@@ -84,7 +84,7 @@
 <section class="panel mt-4">
   <div class="panel-head">
     <h2>Emission Factor Table</h2>
-    <span class="text-secondary small">g/km per vehicle, adjusted by speed and congestion at runtime</span>
+    <span class="text-secondary small">g/km per vehicle; runtime estimates apply speed and congestion multipliers</span>
   </div>
   <div class="table-responsive wide-table">
     <table class="table table-sm align-middle">
@@ -106,6 +106,7 @@
     <a href="{{ source.url }}" target="_blank" rel="noreferrer">{{ source.label }}</a>
     {% endfor %}
   </div>
+  <p class="metric-note mt-3 mb-0">CO2e is calculated as CO2 + 28*CH4 + 265*N2O. These are factor-table/XGBoost estimates from detected vehicle classes, not direct exhaust measurements.</p>
 </section>
 
 <section class="panel mt-4">

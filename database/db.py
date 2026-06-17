@@ -153,9 +153,14 @@ def _seed_admin() -> None:
 def _seed_default_camera() -> None:
     rows = query("SELECT COUNT(*) AS n FROM cameras")
     if rows and rows[0]["n"] == 0:
+        source = (
+            config.SAMPLE_VIDEO_SOURCES[0]
+            if config.SAMPLE_VIDEO_SOURCES
+            else "0"
+        )
         execute(
             "INSERT INTO cameras (name, source, location) VALUES (?,?,?)",
-            ("Demo Camera", "samples/sample_traffic.mp4", "Main Junction"),
+            ("Demo Traffic Video", source, "Included sample"),
         )
         log.info("Seeded default demo camera")
 

@@ -31,8 +31,12 @@ from core.exceptions import ModelNotFoundError
 from core.logger import get_logger
 from database import db
 from detection.congestion_analyzer import CongestionAnalyzer
-from detection.emergency_detector import EmergencyDetector
-from detection.vehicle_detector import VehicleDetector, normalize_source
+from detection.emergency_detector import (
+    EmergencyDetector,
+    validate_emergency_model_file,
+)
+from detection.tracker import CentroidTracker
+from detection.vehicle_detector import VehicleDetector, normalize_source, validate_vehicle_model_file
 from prediction.emission_predictor import EmissionPredictor
 from prediction.emission_factors import (
     EMISSION_FACTORS_G_PER_KM,
@@ -180,6 +184,17 @@ def _safe_int(value, default: int, minimum: int = 1, maximum: int | None = None)
     return parsed
 
 
+def _safe_video_max_frames(value, default: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+    if parsed == -1:
+        return -1
+    parsed = max(1, parsed)
+    return min(1000, parsed)
+
+
 def _fuel_waste_liters(total_count: int, congestion_level: str) -> float:
     idle_minutes = {"Low": 1, "Medium": 3, "High": 6, "Severe": 9}.get(
         congestion_level,
@@ -193,6 +208,32 @@ def _is_browser_feed_stale() -> bool:
         return False
     last_frame_at = _live_state.get("last_frame_at")
     return bool(last_frame_at and time.time() - float(last_frame_at) > 8)
+
+
+def _vehicle_model_metadata() -> tuple[dict[int, str], str | None]:
+    model_path = Path(str(config.VEHICLE_MODEL))
+    if not model_path.exists():
+        return {}, "Using YOLO fallback name; first run may need network access to download weights."
+    try:
+        metadata = validate_vehicle_model_file(model_path)
+        return metadata["names"], None
+    except ValidationError as exc:
+        return {}, str(exc)
+    except Exception as exc:
+        return {}, f"Could not inspect vehicle model: {exc}"
+
+
+def _emergency_model_metadata() -> tuple[dict[int, str], str | None]:
+    model_path = Path(str(config.EMERGENCY_MODEL))
+    if not model_path.exists():
+        return {}, "Emergency model missing; install a checkpoint trained for ambulance/fire_truck/police."
+    try:
+        metadata = validate_emergency_model_file(model_path)
+        return metadata["names"], None
+    except ValidationError as exc:
+        return {}, str(exc)
+    except Exception as exc:
+        return {}, f"Could not inspect emergency model: {exc}"
 
 
 @app.errorhandler(TrafficAIError)
@@ -258,7 +299,11 @@ def home():
 @app.route("/live")
 @login_required
 def live_monitoring():
-    return render_template("live.html", cameras=db.fetch_cameras(active_only=True))
+    return render_template(
+        "live.html",
+        cameras=db.fetch_cameras(active_only=True),
+        sample_video_sources=config.SAMPLE_VIDEO_SOURCES,
+    )
 
 
 @app.route("/alerts")
@@ -350,6 +395,8 @@ def export_csv():
 @app.route("/performance")
 @login_required
 def model_performance():
+    vehicle_labels, vehicle_warning = _vehicle_model_metadata()
+    emergency_labels, emergency_warning = _emergency_model_metadata()
     metrics = {}
     for name in ("emergency_yolo_metrics.json", "lstm_metrics.json", "xgboost_metrics.json"):
         path = config.DATA_DIR / name
@@ -360,6 +407,8 @@ def model_performance():
         metrics=metrics,
         vehicle_model_exists=Path(config.VEHICLE_MODEL).exists(),
         vehicle_model_path=config.VEHICLE_MODEL,
+        vehicle_model_warning=vehicle_warning,
+        vehicle_model_labels=vehicle_labels,
         traffic_density_model_path=config.TRAFFIC_DENSITY_MODEL,
         reference_vehicle_models=[
             path for path in (
@@ -368,8 +417,10 @@ def model_performance():
             )
             if Path(path).exists()
         ],
-        emergency_model_exists=Path(config.EMERGENCY_MODEL).exists(),
+        emergency_model_exists=Path(config.EMERGENCY_MODEL).exists() and not emergency_warning,
         emergency_model_path=config.EMERGENCY_MODEL,
+        emergency_model_warning=emergency_warning,
+        emergency_model_labels=emergency_labels,
         lstm_model_exists=Path(config.LSTM_MODEL_PATH).exists(),
         xgb_models_exist=all(Path(p).exists() for p in config.XGB_MODELS.values()),
     )
@@ -497,11 +548,12 @@ def _persist_snapshot(payload: dict, camera_id: int | None) -> None:
 
 
 def analyze_frame(frame, camera_id: int | None = None, persist: bool = True) -> tuple[dict, bytes]:
-    vehicle_result = get_vehicle_detector().detect(frame)
+    detector = get_vehicle_detector()
+    vehicle_result = detector.detect(frame)
     emergency_model_status = "ready"
     try:
         emergency = get_emergency_detector().detect(frame)
-    except ModelNotFoundError as exc:
+    except TrafficAIError as exc:
         emergency = []
         emergency_model_status = str(exc)
     congestion = analyzer.analyze(vehicle_result.counts)
@@ -513,7 +565,7 @@ def analyze_frame(frame, camera_id: int | None = None, persist: bool = True) -> 
     recent = db.fetch_recent_traffic_chronological(config.SEQUENCE_LENGTH)
     predictions = [p.as_dict() for p in traffic_predictor.predict(recent)]
 
-    annotated = get_vehicle_detector().draw(frame, vehicle_result)
+    annotated = detector.draw(frame, vehicle_result)
     if emergency:
         annotated = get_emergency_detector().draw(annotated, emergency)
     ok, encoded = cv2.imencode(".jpg", annotated, [int(cv2.IMWRITE_JPEG_QUALITY), 82])
@@ -523,11 +575,22 @@ def analyze_frame(frame, camera_id: int | None = None, persist: bool = True) -> 
     payload = {
         "timestamp": _now(),
         "vehicles": vehicle_result.as_dict(),
+        "vehicle_model": {
+            "path": str(detector.model_path),
+            "labels": detector.model_labels,
+            "warning": detector.model_warning,
+        },
         "emergency": [e.as_dict() for e in emergency],
         "emergency_model_status": emergency_model_status,
         "congestion": congestion.as_dict(),
         "emissions": emissions.as_dict(),
         "predictions": predictions,
+    }
+    payload["emission_basis"] = {
+        "unit": "g/km-equivalent",
+        "scope": "currently visible detected vehicles",
+        "co2e_formula": "CO2 + 28*CH4 + 265*N2O",
+        "source": emissions.source,
     }
     payload["impact"] = {
         "density": congestion.level,
@@ -546,6 +609,7 @@ def analyze_video_file(
     camera_id: int | None = None,
     every_n_frames: int | None = None,
     max_frames: int | None = None,
+    analysis_width: int | None = None,
 ) -> dict:
     cap = cv2.VideoCapture(str(path))
     if not cap.isOpened():
@@ -553,27 +617,34 @@ def analyze_video_file(
 
     every = max(1, every_n_frames or config.VIDEO_SAMPLE_EVERY_N_FRAMES)
     max_items = max_frames or config.VIDEO_MAX_ANALYSIS_FRAMES
+    target_width = max(
+        0,
+        int(config.VIDEO_ANALYSIS_WIDTH if analysis_width is None else analysis_width),
+    )
     # Use float('inf') for max_items if -1 (all frames)
     if max_items == -1:
         max_items = float("inf")
     
     frame_index = 0
     analyzed = 0
-    total_counts: Counter[str] = Counter()
+    sampled_detection_totals: Counter[str] = Counter()
     levels: Counter[str] = Counter()
     emergency_events = []
     density_values = []
     score_values = []
     speed_values = []
-    emission_totals: Counter[str] = Counter()
     previews = []
     timeline = []
-    fuel_waste_total = 0.0
+    fuel_waste_samples = []
     roi_lane_totals: Counter[str] = Counter()
     heavy_lane_frames: Counter[str] = Counter()
-
-    # Aggregate per-vehicle emissions if possible for the breakdown
-    per_type_emissions = {}
+    unique_track_labels: dict[int, str] = {}
+    max_visible_counts = {name: 0 for name in config.VEHICLE_TYPES}
+    video_tracker = CentroidTracker(
+        max_disappeared=max(8, min(45, every * 2)),
+        max_distance=max(90.0, min(240.0, float(every) * 6.0)),
+    )
+    tracker_distance_tuned = False
     
     try:
         while analyzed < max_items:
@@ -583,14 +654,28 @@ def analyze_video_file(
             if frame_index % every != 0:
                 frame_index += 1
                 continue
+            if target_width and frame.shape[1] > target_width:
+                scale = target_width / frame.shape[1]
+                frame = cv2.resize(
+                    frame,
+                    (target_width, max(1, int(frame.shape[0] * scale))),
+                    interpolation=cv2.INTER_AREA,
+                )
+            if not tracker_distance_tuned:
+                video_tracker.max_distance = max(
+                    video_tracker.max_distance,
+                    min(260.0, max(frame.shape[:2]) * 0.16),
+                )
+                tracker_distance_tuned = True
             
             # OPTIMIZATION: Call detectors directly to avoid repeated jpeg encoding if not a preview
             is_preview = len(previews) < 12
-            vehicle_result = get_vehicle_detector().detect(frame)
+            detector = get_vehicle_detector()
+            vehicle_result = detector.detect(frame, frame_index=frame_index, tracker=video_tracker)
             emergency = []
             try:
                 emergency = get_emergency_detector().detect(frame)
-            except Exception:
+            except TrafficAIError:
                 pass
             
             congestion = analyzer.analyze(vehicle_result.counts)
@@ -609,15 +694,14 @@ def analyze_video_file(
             
             analyzed += 1
             for vehicle_type, count in payload["vehicles"]["counts"].items():
-                total_counts[vehicle_type] += int(count)
-                if vehicle_type not in per_type_emissions:
-                    per_type_emissions[vehicle_type] = Counter()
-                
-                # Get breakdown from estimate if available
-                v_breakdown = emissions.vehicle_breakdown.get(vehicle_type, {})
-                for k, v in v_breakdown.items():
-                    if isinstance(v, (int, float)):
-                        per_type_emissions[vehicle_type][k] += float(v)
+                sampled_detection_totals[vehicle_type] += int(count)
+                max_visible_counts[vehicle_type] = max(
+                    max_visible_counts.get(vehicle_type, 0),
+                    int(count),
+                )
+            for detection in vehicle_result.detections:
+                if detection.track_id is not None:
+                    unique_track_labels.setdefault(detection.track_id, detection.label)
 
             levels[payload["congestion"]["level"]] += 1
             density_values.append(float(payload["congestion"]["density"]))
@@ -625,11 +709,8 @@ def analyze_video_file(
             speed_values.append(float(payload["congestion"]["avg_speed"]))
             emergency_events.extend(payload["emergency"])
             
-            for pollutant in config.EMISSION_POLLUTANTS:
-                emission_totals[pollutant] += float(payload["emissions"].get(pollutant, 0))
-            
             if is_preview:
-                annotated = get_vehicle_detector().draw(frame, vehicle_result)
+                annotated = detector.draw(frame, vehicle_result)
                 if emergency:
                     annotated = get_emergency_detector().draw(annotated, emergency)
                 ok_enc, jpg = cv2.imencode(".jpg", annotated, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
@@ -648,8 +729,7 @@ def analyze_video_file(
             if right_lane.get("heavy"):
                 heavy_lane_frames["right"] += 1
             
-            # Fuel waste: total count * idle factor
-            fuel_waste_total += _fuel_waste_liters(congestion.total_count, congestion.level)
+            fuel_waste_samples.append(_fuel_waste_liters(congestion.total_count, congestion.level))
             
             timeline.append(
                 {
@@ -673,25 +753,59 @@ def analyze_video_file(
         )
 
     peak_frame = max(timeline, key=lambda row: row["total"], default={})
-    
-    # Process per-type emissions for the response
-    processed_type_emissions = {}
-    for vtype, counts in per_type_emissions.items():
-        processed_type_emissions[vtype] = {k: round(v, 2) for k, v in counts.items()}
+    unique_counts = {name: 0 for name in config.VEHICLE_TYPES}
+    for label in unique_track_labels.values():
+        unique_counts[label] = unique_counts.get(label, 0) + 1
+    unique_counts = {k: v for k, v in unique_counts.items() if v > 0}
+    if not unique_counts:
+        unique_counts = {k: v for k, v in max_visible_counts.items() if v > 0}
+
+    avg_density = round(sum(density_values) / max(1, len(density_values)), 2)
+    avg_speed = round(sum(speed_values) / max(1, len(speed_values)), 2)
+    avg_visible_counts = {
+        vehicle_type: round(total / max(1, analyzed), 2)
+        for vehicle_type, total in sampled_detection_totals.items()
+        if total > 0
+    }
+    emission_estimate = emission_predictor.predict(unique_counts, avg_density, avg_speed)
+    avg_fuel_waste = round(sum(fuel_waste_samples) / max(1, len(fuel_waste_samples)), 2)
 
     return {
         "video": path.name,
         "sample_every_n_frames": every,
+        "analysis_width": target_width,
+        "tracking": {
+            "max_distance_px": video_tracker.max_distance,
+            "max_disappeared_frames": video_tracker.max_disappeared,
+            "note": "unique counts are approximate centroid tracks; lower sample intervals improve identity continuity",
+        },
         "frames_analyzed": analyzed,
-        "vehicle_totals": dict(total_counts),
-        "avg_density": round(sum(density_values) / max(1, len(density_values)), 2),
+        "vehicle_totals": unique_counts,
+        "unique_vehicle_count": int(sum(unique_counts.values())),
+        "sampled_detection_totals": dict(sampled_detection_totals),
+        "avg_visible_counts": avg_visible_counts,
+        "max_visible_counts": {k: v for k, v in max_visible_counts.items() if v > 0},
+        "counting_basis": (
+            "vehicle_totals are unique centroid tracks across analyzed frames; "
+            "sampled_detection_totals are raw per-frame detections and will double-count persistent vehicles"
+        ),
+        "avg_density": avg_density,
         "avg_congestion_score": round(sum(score_values) / max(1, len(score_values)), 2),
-        "avg_speed": round(sum(speed_values) / max(1, len(speed_values)), 2),
+        "avg_speed": avg_speed,
         "congestion_levels": dict(levels),
         "emergency_events": emergency_events,
-        "emission_totals": {k: round(v, 4) for k, v in emission_totals.items()},
-        "type_emission_totals": processed_type_emissions,
-        "fuel_waste_l": round(fuel_waste_total, 2),
+        "emission_totals": emission_estimate.as_dict(),
+        "type_emission_totals": emission_estimate.vehicle_breakdown,
+        "emission_basis": {
+            "unit": "g/km-equivalent",
+            "scope": (
+                "per-kilometre estimate for unique tracked vehicles in this analyzed clip; "
+                "not measured exhaust mass and not multiplied by video duration"
+            ),
+            "co2e_formula": "CO2 + 28*CH4 + 265*N2O",
+            "source": emission_estimate.source,
+        },
+        "fuel_waste_l": avg_fuel_waste,
         "roi_density": {
             "avg_left_lane": round(roi_lane_totals["left"] / max(1, analyzed), 2),
             "avg_right_lane": round(roi_lane_totals["right"] / max(1, analyzed), 2),
@@ -847,13 +961,22 @@ def api_analyze_video():
         minimum=1,
         maximum=300,
     )
-    max_frames = _safe_int(
+    max_frames = _safe_video_max_frames(
         request.form.get("max_frames"),
         config.VIDEO_MAX_ANALYSIS_FRAMES,
-        minimum=1,
-        maximum=1000,
     )
-    result = analyze_video_file(path, every_n_frames=every, max_frames=max_frames)
+    analysis_width = _safe_int(
+        request.form.get("analysis_width"),
+        config.VIDEO_ANALYSIS_WIDTH,
+        minimum=0,
+        maximum=3840,
+    )
+    result = analyze_video_file(
+        path,
+        every_n_frames=every,
+        max_frames=max_frames,
+        analysis_width=analysis_width,
+    )
     return jsonify({"ok": True, "result": result})
 
 

@@ -9,7 +9,7 @@
 </div>
 
 <section class="metric-grid">
-  <article class="metric-card"><span>Vehicle YOLO</span><strong>{{ "Ready" if vehicle_model_exists else "Fallback" }}</strong><small>{{ vehicle_model_path }}</small></article>
+  <article class="metric-card"><span>Vehicle YOLO</span><strong>{{ "Check" if vehicle_model_warning else ("Ready" if vehicle_model_exists else "Fallback") }}</strong><small>{{ vehicle_model_path }}</small></article>
   <article class="metric-card"><span>Emergency YOLO</span><strong>{{ "Ready" if emergency_model_exists else "Missing" }}</strong><small>{{ emergency_model_path }}</small></article>
   <article class="metric-card"><span>LSTM</span><strong>{{ "Ready" if lstm_model_exists else "Baseline" }}</strong><small>traffic forecasting</small></article>
   <article class="metric-card"><span>XGBoost</span><strong>{{ "Ready" if xgb_models_exist else "Formula" }}</strong><small>emission prediction</small></article>
@@ -20,7 +20,7 @@
     <div class="panel-head">
       <div>
         <h2>Install Vehicle YOLO .pt</h2>
-        <small class="text-secondary">Cars, bikes, buses, trucks or generic vehicle classes</small>
+        <small class="text-secondary">Prefer multi-class car, motorcycle, bus, truck and bicycle labels for live cameras</small>
       </div>
       <span class="badge text-bg-success">Primary detector</span>
     </div>
@@ -30,6 +30,16 @@
       <button class="btn btn-primary align-self-start" type="submit"><i class="bi bi-download"></i> Install Vehicle Model</button>
     </form>
     <p class="text-secondary mt-3 mb-0">Installed checkpoints are copied to {{ traffic_density_model_path }}. Current fallback reference models are shown below when present.</p>
+    {% if vehicle_model_warning %}
+    <div class="alert alert-warning mt-3 mb-0">{{ vehicle_model_warning }}</div>
+    {% endif %}
+    {% if vehicle_model_labels %}
+    <div class="source-list">
+      {% for _id, label in vehicle_model_labels.items() %}
+      <span>{{ _id }}: {{ label }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
     {% if reference_vehicle_models %}
     <div class="source-list">
       {% for path in reference_vehicle_models %}
@@ -53,6 +63,16 @@
       <button class="btn btn-primary align-self-start" type="submit"><i class="bi bi-download"></i> Install Emergency Model</button>
     </form>
     <p class="text-secondary mt-3 mb-0">Emergency detection requires a YOLOv8 model trained with classes: ambulance, fire_truck, police.</p>
+    {% if emergency_model_warning %}
+    <div class="alert alert-warning mt-3 mb-0">{{ emergency_model_warning }}</div>
+    {% endif %}
+    {% if emergency_model_labels %}
+    <div class="source-list">
+      {% for _id, label in emergency_model_labels.items() %}
+      <span>{{ _id }}: {{ label }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
   </div>
 </section>
 

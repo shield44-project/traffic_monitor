@@ -176,6 +176,13 @@ function initLivePage() {
     if (analyzedEl && analyzedAt !== undefined) analyzedEl.textContent = analyzedAt;
   }
 
+  function showAnnotatedBrowserFrame(payload) {
+    if (!payload.preview_data_url || !liveFrame) return;
+    liveFrame.src = payload.preview_data_url;
+    browserVideo?.classList.add("capture-only");
+    setVideoMode("server");
+  }
+
   function startBrowserFrameLoop() {
     if (browserTimer) clearInterval(browserTimer);
     setBrowserHealth("Camera preview on; analyzing frames...", browserFrameCount, undefined);
@@ -184,6 +191,7 @@ function initLivePage() {
       onResult: (payload) => {
         browserFrameCount += 1;
         setBrowserHealth("Analyzing live frames", browserFrameCount, (payload.timestamp || "").slice(11, 19) || "now");
+        showAnnotatedBrowserFrame(payload);
         updateSnapshot(payload);
       },
       onError: (message) => setBrowserHealth(message, browserFrameCount, undefined)
@@ -194,6 +202,7 @@ function initLivePage() {
         onResult: (payload) => {
           browserFrameCount += 1;
           setBrowserHealth("Analyzing live frames", browserFrameCount, (payload.timestamp || "").slice(11, 19) || "now");
+          showAnnotatedBrowserFrame(payload);
           updateSnapshot(payload);
         },
         onError: (message) => setBrowserHealth(message, browserFrameCount, undefined)
@@ -203,7 +212,7 @@ function initLivePage() {
 
   function setVideoMode(mode) {
     placeholder?.classList.toggle("d-none", mode !== "empty");
-    liveFrame?.classList.toggle("d-none", mode === "browser" || mode === "empty");
+    liveFrame?.classList.toggle("d-none", mode === "empty");
     browserVideo?.classList.toggle("d-none", mode !== "browser");
   }
 
@@ -213,7 +222,12 @@ function initLivePage() {
     document.getElementById("liveVehicles").textContent = payload.congestion.total_count;
     document.getElementById("liveDensity").textContent = `${payload.congestion.density}%`;
     document.getElementById("liveCongestion").textContent = payload.congestion.level;
-    document.getElementById("liveCo2").textContent = payload.emissions.co2e || payload.emissions.co2;
+    const co2e = payload.emissions.co2e ?? payload.emissions.co2 ?? 0;
+    document.getElementById("liveCo2").textContent = `${Number(co2e).toFixed(2)} g/km-eq`;
+    const basis = document.getElementById("liveEmissionBasis");
+    if (basis && payload.emission_basis) {
+      basis.textContent = `CO2e = ${payload.emission_basis.co2e_formula}; ${payload.emission_basis.scope}.`;
+    }
     const roi = payload.vehicles?.roi_density || {};
     const left = roi.left_lane || payload.impact?.left_lane || {};
     const right = roi.right_lane || payload.impact?.right_lane || {};
@@ -234,7 +248,13 @@ function initLivePage() {
     errorBox?.classList.add("d-none");
     const result = await postJson("/api/live/start", { source });
     setStatus(result.ok ? "Running" : "Error", result.ok ? "badge text-bg-success" : "badge text-bg-danger");
-    if (result.ok) setVideoMode("server");
+    if (result.ok) {
+      if (liveFrame?.dataset.streamUrl) {
+        liveFrame.src = `${liveFrame.dataset.streamUrl}?t=${Date.now()}`;
+      }
+      browserVideo?.classList.remove("capture-only");
+      setVideoMode("server");
+    }
     if (!result.ok && errorBox) {
       let message = result.error || "Could not start live monitoring.";
       if (source === "0" || source === 0) {
@@ -262,7 +282,6 @@ function initLivePage() {
       browserVideo.srcObject = browserStream;
       await browserVideo.play();
       browserVideo.classList.remove("d-none");
-      liveFrame.classList.add("d-none");
       setVideoMode("browser");
       setStatus("Browser Camera", "badge text-bg-success");
       browserFrameCount = 0;
@@ -289,6 +308,7 @@ function initLivePage() {
     browserTimer = null;
     if (browserStream) browserStream.getTracks().forEach((track) => track.stop());
     browserStream = null;
+    browserVideo?.classList.remove("capture-only");
     window.__browserFrameInFlight = false;
     setVideoMode("empty");
     setStatus("Idle", "badge text-bg-secondary");
@@ -374,20 +394,32 @@ function initLivePage() {
 }
 
 function showVideoResult(res) {
+  const totalUnique = Number(res.unique_vehicle_count || Object.values(res.vehicle_totals || {}).reduce((sum, count) => sum + Number(count || 0), 0));
+  const avgVisible = Object.values(res.avg_visible_counts || {}).reduce((sum, count) => sum + Number(count || 0), 0);
+  document.getElementById("vResUniqueVehicles").textContent = totalUnique;
   document.getElementById("vResCongestion").textContent = res.avg_congestion_score;
   document.getElementById("vResDensity").textContent = `${res.avg_density}%`;
   document.getElementById("vResSpeed").textContent = `${res.avg_speed || 0} km/h`;
-  document.getElementById("vResEmissions").textContent = `${res.emission_totals.co2e || res.emission_totals.co2 || 0} g`;
+  const totalCo2e = Number(res.emission_totals.co2e || res.emission_totals.co2 || 0);
+  document.getElementById("vResEmissions").textContent = `${totalCo2e.toFixed(2)} g/km-eq`;
+  const avgVisibleEl = document.getElementById("vResAvgVisible");
+  if (avgVisibleEl) {
+    avgVisibleEl.textContent = avgVisible.toFixed(2);
+  }
+  const basisEl = document.getElementById("vResBasis");
+  if (basisEl) {
+    basisEl.textContent = `${res.counting_basis || "Vehicle totals are unique tracked objects."} ${res.tracking?.note || ""} CO2e scope: ${res.emission_basis?.scope || "estimated g/km-equivalent"}.`;
+  }
   document.getElementById("vResFuel").textContent = `${res.fuel_waste_l || 0} L`;
   document.getElementById("vResPeak").textContent = `Frame ${res.peak_frame?.frame ?? "--"} (${res.peak_frame?.total ?? 0} vehicles)`;
   document.getElementById("vResLanes").textContent = `${res.roi_density?.avg_left_lane || 0} / ${res.roi_density?.avg_right_lane || 0}`;
 
   const tbody = document.getElementById("vResTable");
-  const total = Object.values(res.vehicle_totals || {}).reduce((sum, count) => sum + Number(count || 0), 0);
+  const total = totalUnique;
   tbody.innerHTML = Object.entries(res.vehicle_totals || {}).map(([type, count]) => {
     const share = total ? `${Math.round((Number(count) / total) * 100)}%` : "0%";
     const co2e = res.type_emission_totals?.[type]?.co2e || "--";
-    return `<tr><td>${type}</td><td>${count}</td><td>${share}</td><td>${co2e} g</td></tr>`;
+    return `<tr><td>${type}</td><td>${count}</td><td>${share}</td><td>${co2e} g/km-eq</td></tr>`;
   }).join("");
 
   const gasBox = document.getElementById("vResGases");

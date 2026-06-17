@@ -87,19 +87,24 @@ SCHEMA_PATH = BASE_DIR / "database" / "schema.sql"
 # Model files
 # ---------------------------------------------------------------------------
 def _default_vehicle_model() -> str:
-    """Pick the best local vehicle detector while preserving fallbacks."""
+    """Pick the safest local vehicle detector while preserving fallbacks.
+
+    The one-class top-view reference model is useful for its original sample
+    road video, but it is too broad for webcam use because it labels everything
+    as a generic "Vehicle". Prefer a multi-class traffic checkpoint when it is
+    present; otherwise use the standard COCO YOLO name so Ultralytics can fetch
+    it when network access is available.
+    """
     if TRAFFIC_DENSITY_MODEL.exists():
         return str(TRAFFIC_DENSITY_MODEL)
-    if REFERENCE_TRAFFIC_DENSITY_MODEL.exists():
-        return str(REFERENCE_TRAFFIC_DENSITY_MODEL)
     if SMART_TRAFFIC_MODEL.exists():
         return str(SMART_TRAFFIC_MODEL)
     return str(YOLO_DIR / "yolov8n.pt")
 
 
 # Vehicle detector. The preferred model is an installed traffic-density `.pt`;
-# this repo can also use the included reference checkpoints, then falls back to
-# Ultralytics' COCO `.pt` weights if no custom file exists.
+# this repo then falls back to the included multi-class checkpoint or COCO
+# weights. The one-class top-view model can still be installed explicitly.
 VEHICLE_MODEL = os.getenv("VEHICLE_MODEL", _default_vehicle_model())
 # Fine-tuned weights for emergency vehicles (produced by training script).
 EMERGENCY_MODEL = os.getenv("EMERGENCY_MODEL", str(YOLO_DIR / "emergency" / "best.pt"))
@@ -131,12 +136,13 @@ EMISSION_POLLUTANTS = [
 # Device is resolved at runtime in core/device.py; "auto" picks GPU if present.
 DEVICE = os.getenv("DEVICE", "auto")
 
-VEHICLE_CONF = _env_float("VEHICLE_CONF", 0.35)
+VEHICLE_CONF = _env_float("VEHICLE_CONF", 0.45)
 VEHICLE_IOU = _env_float("VEHICLE_IOU", 0.45)
 EMERGENCY_CONF = _env_float("EMERGENCY_CONF", 0.40)
 INFER_IMGSZ = _env_int("INFER_IMGSZ", 640)
 VIDEO_SAMPLE_EVERY_N_FRAMES = _env_int("VIDEO_SAMPLE_EVERY_N_FRAMES", 15)
 VIDEO_MAX_ANALYSIS_FRAMES = _env_int("VIDEO_MAX_ANALYSIS_FRAMES", 120)
+VIDEO_ANALYSIS_WIDTH = _env_int("VIDEO_ANALYSIS_WIDTH", 960)
 ROI_HEAVY_TRAFFIC_THRESHOLD = _env_int("ROI_HEAVY_TRAFFIC_THRESHOLD", 10)
 ROI_REFERENCE_WIDTH = _env_int("ROI_REFERENCE_WIDTH", 1280)
 ROI_REFERENCE_HEIGHT = _env_int("ROI_REFERENCE_HEIGHT", 720)
@@ -178,10 +184,53 @@ VEHICLE_LABEL_ALIASES = {
     "vehicles": "vehicle",
 }
 GENERIC_VEHICLE_LABELS = {"vehicle", "vehicles", "auto", "traffic"}
+CONCRETE_VEHICLE_LABELS = set(VEHICLE_LABEL_ALIASES) - GENERIC_VEHICLE_LABELS
+
+# Precision-first filtering for live monitoring. These thresholds reduce
+# webcam false positives, especially when a broad custom checkpoint is present.
+VEHICLE_TYPE_MIN_CONFIDENCE = {
+    "car": _env_float("VEHICLE_CAR_CONF", 0.45),
+    "motorcycle": _env_float("VEHICLE_MOTORCYCLE_CONF", 0.42),
+    "bus": _env_float("VEHICLE_BUS_CONF", 0.42),
+    "truck": _env_float("VEHICLE_TRUCK_CONF", 0.42),
+    "bicycle": _env_float("VEHICLE_BICYCLE_CONF", 0.40),
+    "vehicle": _env_float("GENERIC_VEHICLE_CONF", 0.70),
+}
+ALLOW_GENERIC_VEHICLE_CLASS = _env_bool("ALLOW_GENERIC_VEHICLE_CLASS", False)
+VEHICLE_MIN_BOX_AREA_RATIO = _env_float("VEHICLE_MIN_BOX_AREA_RATIO", 0.00015)
+VEHICLE_MAX_BOX_AREA_RATIO = _env_float("VEHICLE_MAX_BOX_AREA_RATIO", 0.70)
+GENERIC_VEHICLE_MAX_BOX_AREA_RATIO = _env_float("GENERIC_VEHICLE_MAX_BOX_AREA_RATIO", 0.24)
+VEHICLE_MIN_ASPECT_RATIO = _env_float("VEHICLE_MIN_ASPECT_RATIO", 0.18)
+VEHICLE_MAX_ASPECT_RATIO = _env_float("VEHICLE_MAX_ASPECT_RATIO", 6.50)
+GENERIC_VEHICLE_MIN_ASPECT_RATIO = _env_float("GENERIC_VEHICLE_MIN_ASPECT_RATIO", 0.35)
+GENERIC_VEHICLE_MAX_ASPECT_RATIO = _env_float("GENERIC_VEHICLE_MAX_ASPECT_RATIO", 4.50)
+
+SAMPLE_VIDEO_SOURCES = tuple(
+    str(path.relative_to(BASE_DIR))
+    for path in (
+        UPLOAD_DIR / "sample_video.mp4",
+        UPLOAD_DIR / "18437773-uhd_3840_2160_50fps.mp4",
+        BASE_DIR / "YOLOv8_Traffic_Density_Estimation" / "sample_video.mp4",
+    )
+    if path.exists()
+)
 
 # Emergency classes produced by the fine-tuned model (index order must match
 # the training data.yaml `names:` list).
 EMERGENCY_CLASSES = ["ambulance", "fire_truck", "police"]
+EMERGENCY_LABEL_ALIASES = {
+    "ambulance": "ambulance",
+    "ambulances": "ambulance",
+    "fire_truck": "fire_truck",
+    "firetruck": "fire_truck",
+    "fire_engine": "fire_truck",
+    "fireengine": "fire_truck",
+    "fire": "fire_truck",
+    "police": "police",
+    "police_car": "police",
+    "policecar": "police",
+    "patrol_car": "police",
+}
 
 # ---------------------------------------------------------------------------
 # Congestion model

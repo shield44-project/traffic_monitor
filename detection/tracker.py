@@ -61,25 +61,31 @@ class CentroidTracker:
                 self.count_up += 1
         self._last_y[oid] = cur_y
 
-    def update(self, boxes: list[tuple[float, float, float, float]]
-               ) -> dict[int, tuple[int, int]]:
-        """Update tracks with current-frame boxes (x1,y1,x2,y2).
+    def update_with_assignments(
+        self, boxes: list[tuple[float, float, float, float]]
+    ) -> tuple[dict[int, tuple[int, int]], list[int | None]]:
+        """Update tracks and return per-box track ids.
 
-        Returns a mapping of track-id -> (cx, cy) centroid for drawing.
+        The returned assignments list has the same order as ``boxes``. This is
+        needed for video reports so a car visible in many sampled frames counts
+        once as a tracked object instead of once per frame.
         """
+        assignments: list[int | None] = [None] * len(boxes)
         if len(boxes) == 0:
             for oid in list(self.disappeared.keys()):
                 self.disappeared[oid] += 1
                 if self.disappeared[oid] > self.max_disappeared:
                     self._deregister(oid)
-            return {oid: (int(c[0]), int(c[1])) for oid, c in self.objects.items()}
+            return {oid: (int(c[0]), int(c[1])) for oid, c in self.objects.items()}, assignments
 
         centroids = np.array(
             [((x1 + x2) / 2.0, (y1 + y2) / 2.0) for x1, y1, x2, y2 in boxes])
 
         if len(self.objects) == 0:
-            for c in centroids:
+            for col, c in enumerate(centroids):
+                oid = self.next_id
                 self._register(c)
+                assignments[col] = oid
         else:
             object_ids = list(self.objects.keys())
             object_centroids = np.array(list(self.objects.values()))
@@ -102,6 +108,7 @@ class CentroidTracker:
                 self.objects[oid] = centroids[col]
                 self.disappeared[oid] = 0
                 self._check_crossing(oid, centroids[col])
+                assignments[col] = oid
                 used_rows.add(row)
                 used_cols.add(col)
 
@@ -114,6 +121,17 @@ class CentroidTracker:
 
             # Unmatched detections -> new tracks.
             for col in set(range(dists.shape[1])) - used_cols:
+                oid = self.next_id
                 self._register(centroids[col])
+                assignments[col] = oid
 
-        return {oid: (int(c[0]), int(c[1])) for oid, c in self.objects.items()}
+        return {oid: (int(c[0]), int(c[1])) for oid, c in self.objects.items()}, assignments
+
+    def update(self, boxes: list[tuple[float, float, float, float]]
+               ) -> dict[int, tuple[int, int]]:
+        """Update tracks with current-frame boxes (x1,y1,x2,y2).
+
+        Returns a mapping of track-id -> (cx, cy) centroid for drawing.
+        """
+        tracks, _assignments = self.update_with_assignments(boxes)
+        return tracks
