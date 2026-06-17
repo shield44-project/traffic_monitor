@@ -1,8 +1,15 @@
-# Smart Traffic AI Project
+# Project Aim: Traffic Congestion Prediction for Emission Reduction
 
-## Objective
+## Primary Objective
 
-This project is an AI-powered smart traffic monitoring system for city/junction use. It accepts live camera feeds, phone/browser camera frames, images and uploaded videos, then uses YOLO `.pt` models to detect vehicles, estimate traffic density, flag emergency vehicles, estimate emissions, forecast congestion and store results for reports.
+The main aim of this project is **to mitigate the environmental impact of urban transportation by predicting traffic congestion peaks before they occur.** By utilizing **LSTM-based time-series forecasting**, the system enables proactive traffic management strategies that maintain smooth traffic flow, which is significantly more fuel-efficient and less polluting than congested "stop-and-go" conditions.
+
+## Technical Goals
+
+-   **Predictive Management:** Use LSTM networks to forecast traffic congestion horizons (5, 10, 15 min), allowing for preemptive intervention.
+-   **Pollution Quantification:** Employ XGBoost regression and EPA-anchored factor tables to provide high-fidelity estimates of 11 gaseous pollutants (CO2, NOx, PM2.5, etc.).
+-   **Real-Time Monitoring:** Deploy YOLOv8 for sub-second vehicle detection and emergency vehicle identification.
+-   **Traffic Analysis:** Convert visual camera feeds into actionable metrics including density, average speed, and lane-specific intensity.
 
 ## What Was Fixed And Added
 

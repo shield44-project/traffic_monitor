@@ -1,9 +1,11 @@
-# AI-Powered Smart Traffic Congestion Analysis, Emergency Vehicle Detection, and Vehicle Emission Prediction System
+# AI-Powered Traffic Congestion Prediction for Emission Reduction
 
-Software-only final-year project for smart traffic analytics. It detects and
-counts vehicles, fine-tunes YOLOv8 for emergency vehicles, forecasts congestion
-with LSTM, estimates emissions with XGBoost, stores results in SQLite, and
-serves a Flask analytics dashboard.
+**A Smart Traffic Intelligence System designed to mitigate urban pollution through predictive congestion management.**
+
+This project detects and counts vehicles, fine-tunes YOLOv8 for emergency vehicles, **forecasts congestion using LSTM to enable proactive emission reduction**, and estimates gaseous pollutants with XGBoost.
+
+## Primary Aim
+To reduce the carbon and toxic footprint of urban traffic by predicting congestion peaks before they occur, allowing for proactive traffic flow management that keeps vehicles moving and minimizes idling emissions.
 
 ## Features
 

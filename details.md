@@ -1,14 +1,19 @@
-# Project Technical Details: Smart Traffic Intelligence System
+# Project Aim: Traffic Congestion Prediction for Emission Reduction
 
-This document provides a deep-dive explanation of the architecture, methodologies, and technologies used in the AI-Powered Smart Traffic System.
+This project is a technical solution designed to mitigate the environmental impact of urban transportation through **AI-powered predictive congestion management**.
 
 ---
 
-## 1. Core Objectives
-1.  **Object Detection:** Real-time identification and classification of vehicles and emergency services.
-2.  **Traffic Analytics:** Conversion of raw detections into density, congestion scores, and lane-specific intensity.
-3.  **Predictive Modeling:** Forecasting future traffic states using time-series analysis.
-4.  **Environmental Assessment:** Estimating the carbon footprint and pollutant levels of active traffic.
+## 1. Primary Mission
+The core goal is to **reduce urban vehicle emissions** by predicting traffic congestion before it occurs. By forecasting congestion peaks using **LSTM networks**, city planners and traffic systems can implement proactive routing and signaling strategies to maintain "free-flow" traffic, which is significantly more fuel-efficient and less polluting than "stop-and-go" congested traffic.
+
+---
+
+## 2. Core Objectives
+1.  **Predictive Forecasting (The Solution):** Using LSTM models to predict traffic states 5, 10, and 15 minutes ahead to enable proactive mitigation.
+2.  **Environmental Impact Assessment (The Goal):** Quantifying 11 different gaseous pollutants (XGBoost) to measure the success of emission-reduction strategies.
+3.  **Real-Time Detection (The Input):** Utilizing YOLOv8 for high-speed vehicle and emergency detection to provide the raw data needed for analysis.
+4.  **Traffic Analytics:** Converting visual data into density and speed metrics to calculate the precise correlation between congestion and pollution.
 
 ---
 
