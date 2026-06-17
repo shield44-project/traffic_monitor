@@ -51,6 +51,11 @@ MODELS_DIR = BASE_DIR / "models"
 YOLO_DIR = MODELS_DIR / "yolo"
 LSTM_DIR = MODELS_DIR / "lstm"
 XGB_DIR = MODELS_DIR / "xgboost"
+REFERENCE_TRAFFIC_DENSITY_MODEL = (
+    BASE_DIR / "YOLOv8_Traffic_Density_Estimation" / "models" / "best.pt"
+)
+SMART_TRAFFIC_MODEL = BASE_DIR / "Smart-Traffic-Intelligence-System" / "best.pt"
+TRAFFIC_DENSITY_MODEL = YOLO_DIR / "traffic_density_best.pt"
 
 DATA_DIR = BASE_DIR / "data"
 DATASETS_DIR = BASE_DIR / "datasets"
@@ -67,6 +72,11 @@ for _d in (MODELS_DIR, YOLO_DIR, YOLO_DIR / "emergency", LSTM_DIR, XGB_DIR,
            DATA_DIR, REPORTS_DIR, SAMPLES_DIR, LOGS_DIR, UPLOAD_DIR, FRAME_DIR):
     _d.mkdir(parents=True, exist_ok=True)
 
+os.environ.setdefault("YOLO_CONFIG_DIR", str(DATA_DIR / "ultralytics"))
+os.environ.setdefault("MPLCONFIGDIR", str(DATA_DIR / "matplotlib"))
+(DATA_DIR / "ultralytics").mkdir(parents=True, exist_ok=True)
+(DATA_DIR / "matplotlib").mkdir(parents=True, exist_ok=True)
+
 # ---------------------------------------------------------------------------
 # Database
 # ---------------------------------------------------------------------------
@@ -76,10 +86,21 @@ SCHEMA_PATH = BASE_DIR / "database" / "schema.sql"
 # ---------------------------------------------------------------------------
 # Model files
 # ---------------------------------------------------------------------------
-# Pretrained base model for general vehicle detection (auto-downloaded by
-# Ultralytics on first use from: https://github.com/ultralytics/assets/releases)
-# Use yolov8s.pt or yolov8m.pt for higher accuracy on a GPU.
-VEHICLE_MODEL = os.getenv("VEHICLE_MODEL", str(YOLO_DIR / "yolov8n.pt"))
+def _default_vehicle_model() -> str:
+    """Pick the best local vehicle detector while preserving fallbacks."""
+    if TRAFFIC_DENSITY_MODEL.exists():
+        return str(TRAFFIC_DENSITY_MODEL)
+    if REFERENCE_TRAFFIC_DENSITY_MODEL.exists():
+        return str(REFERENCE_TRAFFIC_DENSITY_MODEL)
+    if SMART_TRAFFIC_MODEL.exists():
+        return str(SMART_TRAFFIC_MODEL)
+    return str(YOLO_DIR / "yolov8n.pt")
+
+
+# Vehicle detector. The preferred model is an installed traffic-density `.pt`;
+# this repo can also use the included reference checkpoints, then falls back to
+# Ultralytics' COCO `.pt` weights if no custom file exists.
+VEHICLE_MODEL = os.getenv("VEHICLE_MODEL", _default_vehicle_model())
 # Fine-tuned weights for emergency vehicles (produced by training script).
 EMERGENCY_MODEL = os.getenv("EMERGENCY_MODEL", str(YOLO_DIR / "emergency" / "best.pt"))
 
@@ -116,6 +137,16 @@ EMERGENCY_CONF = _env_float("EMERGENCY_CONF", 0.40)
 INFER_IMGSZ = _env_int("INFER_IMGSZ", 640)
 VIDEO_SAMPLE_EVERY_N_FRAMES = _env_int("VIDEO_SAMPLE_EVERY_N_FRAMES", 15)
 VIDEO_MAX_ANALYSIS_FRAMES = _env_int("VIDEO_MAX_ANALYSIS_FRAMES", 120)
+ROI_HEAVY_TRAFFIC_THRESHOLD = _env_int("ROI_HEAVY_TRAFFIC_THRESHOLD", 10)
+ROI_REFERENCE_WIDTH = _env_int("ROI_REFERENCE_WIDTH", 1280)
+ROI_REFERENCE_HEIGHT = _env_int("ROI_REFERENCE_HEIGHT", 720)
+ROI_VERTICAL_RANGE = (
+    _env_int("ROI_VERTICAL_RANGE_TOP", 325),
+    _env_int("ROI_VERTICAL_RANGE_BOTTOM", 635),
+)
+ROI_LANE_THRESHOLD_X = _env_int("ROI_LANE_THRESHOLD_X", 609)
+ROI_LEFT_POLYGON = ((465, 350), (609, 350), (510, 630), (2, 630))
+ROI_RIGHT_POLYGON = ((678, 350), (815, 350), (1203, 630), (743, 630))
 
 # COCO class ids that count as "vehicles" mapped to friendly names.
 # (Ids come from the standard COCO dataset used by pretrained YOLOv8.)
@@ -126,6 +157,27 @@ VEHICLE_CLASSES = {
     7: "truck",
     1: "bicycle",
 }
+VEHICLE_TYPES = ("car", "motorcycle", "bus", "truck", "bicycle", "vehicle")
+VEHICLE_LABEL_ALIASES = {
+    "car": "car",
+    "cars": "car",
+    "mobil": "car",
+    "motor": "motorcycle",
+    "motorbike": "motorcycle",
+    "bike": "motorcycle",
+    "bikes": "motorcycle",
+    "motorcycle": "motorcycle",
+    "motorcycles": "motorcycle",
+    "bus": "bus",
+    "buses": "bus",
+    "truck": "truck",
+    "truk": "truck",
+    "lorry": "truck",
+    "bicycle": "bicycle",
+    "vehicle": "vehicle",
+    "vehicles": "vehicle",
+}
+GENERIC_VEHICLE_LABELS = {"vehicle", "vehicles", "auto", "traffic"}
 
 # Emergency classes produced by the fine-tuned model (index order must match
 # the training data.yaml `names:` list).
@@ -146,6 +198,7 @@ VEHICLE_WEIGHTS = {
     "bicycle": 0.4,
     "bus": 2.5,
     "truck": 2.2,
+    "vehicle": 1.2,
 }
 
 # Congestion bands: (label, lower_bound_inclusive, upper_bound_inclusive)

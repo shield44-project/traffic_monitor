@@ -13,7 +13,9 @@ serves a Flask analytics dashboard.
 - LSTM predictions for 5, 10 and 15 minute congestion horizons.
 - XGBoost/factor-table CO2, CO2e, CO, NOx, PM2.5, PM10, HC, VOC, SO2, CH4 and N2O emission prediction.
 - Live video, webcam and RTSP support.
-- Browser camera frame capture and uploaded video analysis.
+- Browser/phone camera frame capture and uploaded video analysis.
+- User-installable vehicle traffic-density YOLO `.pt` models.
+- Left/right lane ROI density analysis with Smooth/Heavy intensity labels.
 - SQLite persistence, REST APIs, PDF/CSV reports.
 - Dashboard with dark mode, Chart.js graphs, historical analytics and alerts.
 - Authentication with admin/viewer roles.
@@ -91,6 +93,12 @@ or upload `best.pt` from the Model Performance page. There is no official
 Ultralytics emergency-vehicle checkpoint bundled with YOLOv8; the app does not
 simulate emergency detections when `best.pt` is missing.
 
+Install a vehicle/traffic-density `.pt` from the Model Performance page. The
+app checks models in this order: `models/yolo/traffic_density_best.pt`, the
+local `Smart-Traffic-Intelligence-System/best.pt`, the local
+`YOLOv8_Traffic_Density_Estimation/models/best.pt`, then the Ultralytics YOLO
+fallback.
+
 Traffic forecasting:
 
 ```bash
@@ -149,6 +157,10 @@ and `predictions`.
 Supported datasets include UA-DETRAC, AI City Challenge, Roboflow emergency
 vehicle datasets, and custom YOLO-format datasets. See `datasets/README.md`.
 
+For a detailed literature review and report-ready reference list covering
+YOLO traffic detection, ROI density, AI City Challenge, CityFlow, BDD100K,
+BMD-45, LSTM forecasting and emissions estimation, see `PROJECT.md`.
+
 ## Testing
 
 ```bash
@@ -157,6 +169,11 @@ pytest
 ```
 
 ## Notes
+
+See `PROJECT.md` for the detailed objectives, methodology, literature review,
+IEEE/paper directions, datasets used, testing-video sources, camera-feed flow,
+model choices, public URL options, Docker usage and deployment guidance. See
+`datasets/README.md` for dataset layout and recommended traffic video sources.
 
 The dashboard remains usable before custom training by using transparent
 fallbacks for LSTM and an EPA/MOVES/EEA-style emission factor table. Emissions

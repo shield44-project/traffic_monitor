@@ -1,27 +1,66 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="page-head">
-  <div><h1>Model Performance</h1><p>Training metrics and model availability.</p></div>
+  <div>
+    <span class="eyebrow">AI model control</span>
+    <h1>Model Performance</h1>
+    <p>Install YOLO `.pt` checkpoints and review training/evaluation artifacts.</p>
+  </div>
 </div>
+
 <section class="metric-grid">
+  <article class="metric-card"><span>Vehicle YOLO</span><strong>{{ "Ready" if vehicle_model_exists else "Fallback" }}</strong><small>{{ vehicle_model_path }}</small></article>
   <article class="metric-card"><span>Emergency YOLO</span><strong>{{ "Ready" if emergency_model_exists else "Missing" }}</strong><small>{{ emergency_model_path }}</small></article>
   <article class="metric-card"><span>LSTM</span><strong>{{ "Ready" if lstm_model_exists else "Baseline" }}</strong><small>traffic forecasting</small></article>
   <article class="metric-card"><span>XGBoost</span><strong>{{ "Ready" if xgb_models_exist else "Formula" }}</strong><small>emission prediction</small></article>
-  <article class="metric-card"><span>Metrics Files</span><strong>{{ metrics|length }}</strong><small>data/*.json</small></article>
 </section>
-<section class="panel mb-4">
-  <div class="panel-head">
-    <h2>Install Emergency YOLO best.pt</h2>
-    <span class="badge text-bg-danger">No simulation</span>
+
+<section class="content-grid two mb-4">
+  <div class="panel glass-panel">
+    <div class="panel-head">
+      <div>
+        <h2>Install Vehicle YOLO .pt</h2>
+        <small class="text-secondary">Cars, bikes, buses, trucks or generic vehicle classes</small>
+      </div>
+      <span class="badge text-bg-success">Primary detector</span>
+    </div>
+    <form action="{{ url_for('install_vehicle_model_route') }}" method="post" enctype="multipart/form-data" class="vstack gap-3">
+      <input class="form-control" name="model_url" placeholder="Trusted direct URL to vehicle/traffic best.pt">
+      <input class="form-control" type="file" name="model_file" accept=".pt">
+      <button class="btn btn-primary align-self-start" type="submit"><i class="bi bi-download"></i> Install Vehicle Model</button>
+    </form>
+    <p class="text-secondary mt-3 mb-0">Installed checkpoints are copied to {{ traffic_density_model_path }}. Current fallback reference models are shown below when present.</p>
+    {% if reference_vehicle_models %}
+    <div class="source-list">
+      {% for path in reference_vehicle_models %}
+      <span>{{ path }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
   </div>
-  <form action="{{ url_for('install_emergency_model_route') }}" method="post" enctype="multipart/form-data" class="vstack gap-3">
-    <input class="form-control" name="model_url" placeholder="Trusted direct URL to best.pt">
-    <input class="form-control" type="file" name="model_file" accept=".pt">
-    <button class="btn btn-primary align-self-start" type="submit"><i class="bi bi-download"></i> Install Model</button>
-  </form>
-  <p class="text-secondary mt-3 mb-0">Use a YOLOv8 model trained with classes: ambulance, fire_truck, police. The app will not fake emergency detections if this model is missing.</p>
+
+  <div class="panel glass-panel">
+    <div class="panel-head">
+      <div>
+        <h2>Install Emergency YOLO best.pt</h2>
+        <small class="text-secondary">Ambulance, fire truck and police detector</small>
+      </div>
+      <span class="badge text-bg-danger">No simulation</span>
+    </div>
+    <form action="{{ url_for('install_emergency_model_route') }}" method="post" enctype="multipart/form-data" class="vstack gap-3">
+      <input class="form-control" name="model_url" placeholder="Trusted direct URL to emergency best.pt">
+      <input class="form-control" type="file" name="model_file" accept=".pt">
+      <button class="btn btn-primary align-self-start" type="submit"><i class="bi bi-download"></i> Install Emergency Model</button>
+    </form>
+    <p class="text-secondary mt-3 mb-0">Emergency detection requires a YOLOv8 model trained with classes: ambulance, fire_truck, police.</p>
+  </div>
 </section>
-<section class="panel">
+
+<section class="panel glass-panel">
+  <div class="panel-head">
+    <h2>Metrics Files</h2>
+    <span class="badge text-bg-secondary">{{ metrics|length }} files</span>
+  </div>
   {% for filename, content in metrics.items() %}
   <h2>{{ filename }}</h2>
   <pre class="json-output">{{ content|tojson(indent=2) }}</pre>

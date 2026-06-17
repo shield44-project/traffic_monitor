@@ -79,6 +79,88 @@ If using Firebase or Vercel, host only the frontend there and set API calls to a
 public Flask backend URL. Browser camera access also requires HTTPS in most
 browsers, except `localhost`.
 
+## Recommended Student Demo Hosting
+
+### Fastest Public Demo: ngrok
+
+```bash
+python app.py
+ngrok http 5000
+```
+
+Open the HTTPS ngrok URL on your phone or another laptop. This is the easiest
+way to test phone/browser camera input because browsers require HTTPS for
+camera access.
+
+### Render / Railway / Fly.io
+
+These are good for a public Flask demo URL.
+
+Recommended settings:
+
+```text
+Build command: pip install -r requirements.txt
+Start command: gunicorn -w 1 -b 0.0.0.0:$PORT app:app
+Environment:
+  SECRET_KEY=<long random value>
+  DEBUG=false
+  DEVICE=cpu
+```
+
+Notes:
+
+- Use one worker because YOLO models consume memory.
+- Store large uploaded videos/models in persistent disk or object storage when
+  the platform supports it.
+- CPU inference is acceptable for sampled video analysis, but true real-time
+  multi-camera monitoring needs a GPU VM.
+
+### Google Cloud Run
+
+Best managed container option for a serious CPU demo:
+
+```bash
+docker build -t traffic-ai .
+```
+
+Push the image to Artifact Registry and deploy to Cloud Run. Use Cloud Storage
+for larger videos and model files in production.
+
+### GPU VM
+
+Best for final demo quality:
+
+- AWS EC2 GPU instance,
+- GCP Compute Engine GPU VM,
+- Azure GPU VM,
+- local NVIDIA laptop/desktop.
+
+Run with:
+
+```bash
+gunicorn -w 1 -b 0.0.0.0:5000 app:app
+```
+
+Put Nginx/Caddy in front for HTTPS if exposing to public users.
+
+## Vercel-Compatible Architecture
+
+Do not run YOLO inference directly on Vercel serverless functions. Use Vercel
+only as an optional frontend host:
+
+```text
+Vercel static UI
+        |
+        v
+Flask YOLO API on Render/Railway/Fly/Cloud Run/GPU VM
+        |
+        v
+PostgreSQL + object storage for production
+```
+
+For the current Flask/Jinja app, the simplest option is to deploy the Flask app
+itself on Render/Railway/Fly/Cloud Run instead of splitting the frontend.
+
 ## Training Order
 
 ```bash

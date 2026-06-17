@@ -24,8 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import config  # noqa: E402
 
 
-def install_model(url: str | None = None, source_file: str | None = None) -> Path:
-    target = Path(config.EMERGENCY_MODEL)
+def _install_checkpoint(target: Path, url: str | None = None, source_file: str | None = None) -> Path:
     target.parent.mkdir(parents=True, exist_ok=True)
     tmp = target.with_suffix(".download")
     if source_file:
@@ -45,6 +44,14 @@ def install_model(url: str | None = None, source_file: str | None = None) -> Pat
         raise ValueError("Downloaded file is too small to be a valid YOLO .pt checkpoint")
     tmp.replace(target)
     return target
+
+
+def install_model(url: str | None = None, source_file: str | None = None) -> Path:
+    return _install_checkpoint(Path(config.EMERGENCY_MODEL), url=url, source_file=source_file)
+
+
+def install_vehicle_model(url: str | None = None, source_file: str | None = None) -> Path:
+    return _install_checkpoint(config.TRAFFIC_DENSITY_MODEL, url=url, source_file=source_file)
 
 
 def main() -> None:

@@ -146,33 +146,108 @@ function initLivePage() {
   const errorBox = document.getElementById("liveError");
   const browserVideo = document.getElementById("browserCamera");
   const liveFrame = document.getElementById("liveFrame");
+  const placeholder = document.getElementById("cameraPlaceholder");
   let browserStream = null;
   let browserTimer = null;
+  let browserFrameCount = 0;
   const liveData = [];
   const liveChart = lineChart("liveChart", [], [
     { label: "Congestion", data: liveData, borderColor: palette.red, backgroundColor: "rgba(239,68,68,.1)", fill: true }
   ]);
+
+  function setStatus(text, className) {
+    if (!state) return;
+    state.textContent = text;
+    state.className = className;
+  }
+
+  function showError(message) {
+    if (!errorBox) return;
+    errorBox.textContent = message;
+    errorBox.classList.remove("d-none");
+  }
+
+  function setBrowserHealth(status, count, analyzedAt) {
+    const statusEl = document.getElementById("browserCameraState");
+    const countEl = document.getElementById("browserFrameCount");
+    const analyzedEl = document.getElementById("browserLastAnalyzed");
+    if (statusEl) statusEl.textContent = status;
+    if (countEl && count !== undefined) countEl.textContent = count;
+    if (analyzedEl && analyzedAt !== undefined) analyzedEl.textContent = analyzedAt;
+  }
+
+  function startBrowserFrameLoop() {
+    if (browserTimer) clearInterval(browserTimer);
+    setBrowserHealth("Camera preview on; analyzing frames...", browserFrameCount, undefined);
+    sendBrowserFrame(browserVideo, {
+      onStart: () => setBrowserHealth("Sending frame to model...", browserFrameCount, undefined),
+      onResult: (payload) => {
+        browserFrameCount += 1;
+        setBrowserHealth("Analyzing live frames", browserFrameCount, (payload.timestamp || "").slice(11, 19) || "now");
+        updateSnapshot(payload);
+      },
+      onError: (message) => setBrowserHealth(message, browserFrameCount, undefined)
+    });
+    browserTimer = setInterval(() => {
+      sendBrowserFrame(browserVideo, {
+        onStart: () => setBrowserHealth("Sending frame to model...", browserFrameCount, undefined),
+        onResult: (payload) => {
+          browserFrameCount += 1;
+          setBrowserHealth("Analyzing live frames", browserFrameCount, (payload.timestamp || "").slice(11, 19) || "now");
+          updateSnapshot(payload);
+        },
+        onError: (message) => setBrowserHealth(message, browserFrameCount, undefined)
+      });
+    }, 2000);
+  }
+
+  function setVideoMode(mode) {
+    placeholder?.classList.toggle("d-none", mode !== "empty");
+    liveFrame?.classList.toggle("d-none", mode === "browser" || mode === "empty");
+    browserVideo?.classList.toggle("d-none", mode !== "browser");
+  }
+
+  function updateSnapshot(payload) {
+    if (!payload || !payload.congestion) return;
+    document.getElementById("snapshotTime").textContent = payload.timestamp || "--";
+    document.getElementById("liveVehicles").textContent = payload.congestion.total_count;
+    document.getElementById("liveDensity").textContent = `${payload.congestion.density}%`;
+    document.getElementById("liveCongestion").textContent = payload.congestion.level;
+    document.getElementById("liveCo2").textContent = payload.emissions.co2e || payload.emissions.co2;
+    const roi = payload.vehicles?.roi_density || {};
+    const left = roi.left_lane || payload.impact?.left_lane || {};
+    const right = roi.right_lane || payload.impact?.right_lane || {};
+    document.getElementById("leftLaneCount").textContent = left.count ?? 0;
+    document.getElementById("leftLaneState").textContent = left.intensity || "Smooth";
+    document.getElementById("rightLaneCount").textContent = right.count ?? 0;
+    document.getElementById("rightLaneState").textContent = right.intensity || "Smooth";
+    document.getElementById("fuelWaste").textContent = `${payload.impact?.fuel_waste_l ?? 0} L`;
+    document.getElementById("emergencyCount").textContent = payload.emergency?.length || 0;
+    alertBox?.classList.toggle("d-none", !payload.emergency || payload.emergency.length === 0);
+  }
+
+  setVideoMode("empty");
 
   document.getElementById("startLive")?.addEventListener("click", async () => {
     const form = document.getElementById("liveForm");
     const source = form.manualSource.value.trim() || form.source.value;
     errorBox?.classList.add("d-none");
     const result = await postJson("/api/live/start", { source });
-    state.textContent = result.ok ? "Running" : "Error";
-    state.className = result.ok ? "badge text-bg-success" : "badge text-bg-danger";
+    setStatus(result.ok ? "Running" : "Error", result.ok ? "badge text-bg-success" : "badge text-bg-danger");
+    if (result.ok) setVideoMode("server");
     if (!result.ok && errorBox) {
-      errorBox.textContent = result.error || "Could not start live monitoring.";
+      let message = result.error || "Could not start live monitoring.";
       if (source === "0" || source === 0) {
-        errorBox.textContent += " Hint: Server has no webcam. Use 'Start Browser Camera' instead.";
+        message += " Hint: server webcam means a camera attached to this machine. Use phone/browser camera for your own device.";
       }
-      errorBox.classList.remove("d-none");
+      showError(message);
     }
   });
 
   document.getElementById("stopLive")?.addEventListener("click", async () => {
     await postJson("/api/live/stop");
-    state.textContent = "Idle";
-    state.className = "badge text-bg-secondary";
+    setStatus("Idle", "badge text-bg-secondary");
+    setVideoMode("empty");
   });
 
   document.getElementById("startBrowserCamera")?.addEventListener("click", async () => {
@@ -185,22 +260,27 @@ function initLivePage() {
         audio: false 
       });
       browserVideo.srcObject = browserStream;
+      await browserVideo.play();
       browserVideo.classList.remove("d-none");
       liveFrame.classList.add("d-none");
-      state.textContent = "Browser Camera";
-      state.className = "badge text-bg-success";
+      setVideoMode("browser");
+      setStatus("Browser Camera", "badge text-bg-success");
+      browserFrameCount = 0;
+      setBrowserHealth("Camera preview on; waiting for model...", browserFrameCount, "--");
       errorBox?.classList.add("d-none");
-      
-      // Ensure video is playing before starting timer
-      browserVideo.onloadedmetadata = () => {
-        if (browserTimer) clearInterval(browserTimer);
-        browserTimer = setInterval(() => sendBrowserFrame(browserVideo), 2000);
-      };
+
+      if (browserVideo.readyState >= 2) {
+        startBrowserFrameLoop();
+      } else {
+        browserVideo.onloadedmetadata = startBrowserFrameLoop;
+        browserVideo.oncanplay = startBrowserFrameLoop;
+      }
     } catch (error) {
       if (errorBox) {
         errorBox.textContent = `Camera Error: ${error.message}`;
         errorBox.classList.remove("d-none");
       }
+      setBrowserHealth(`Camera error: ${error.message}`, browserFrameCount, undefined);
     }
   });
 
@@ -209,10 +289,10 @@ function initLivePage() {
     browserTimer = null;
     if (browserStream) browserStream.getTracks().forEach((track) => track.stop());
     browserStream = null;
-    browserVideo.classList.add("d-none");
-    liveFrame.classList.remove("d-none");
-    state.textContent = "Idle";
-    state.className = "badge text-bg-secondary";
+    window.__browserFrameInFlight = false;
+    setVideoMode("empty");
+    setStatus("Idle", "badge text-bg-secondary");
+    setBrowserHealth("Stopped", browserFrameCount, undefined);
     await postJson("/api/live/stop");
   });
 
@@ -224,35 +304,26 @@ function initLivePage() {
     
     const payload = data.payload || {};
     if (!payload.congestion) {
-      state.textContent = data.running ? "Running (Initializing)" : "Idle";
-      state.className = data.running ? "badge text-bg-info" : "badge text-bg-secondary";
+      setStatus(data.running ? "Running (Initializing)" : "Idle", data.running ? "badge text-bg-info" : "badge text-bg-secondary");
       return;
     }
 
-    state.textContent = data.running ? "Running" : "Idle";
-    state.className = data.running ? "badge text-bg-success" : "badge text-bg-secondary";
+    setStatus(data.running ? (data.mode === "browser" ? "Browser Camera" : "Running") : "Idle", data.running ? "badge text-bg-success" : "badge text-bg-secondary");
+    if (data.running && data.mode === "server") setVideoMode("server");
     
     if (data.error && errorBox) {
-      errorBox.textContent = data.error;
-      errorBox.classList.remove("d-none");
+      showError(data.error);
     }
 
     if (payload.timestamp === lastTimestamp) return;
     lastTimestamp = payload.timestamp;
 
-    document.getElementById("snapshotTime").textContent = payload.timestamp || "--";
-    document.getElementById("liveVehicles").textContent = payload.congestion.total_count;
-    document.getElementById("liveDensity").textContent = `${payload.congestion.density}%`;
-    document.getElementById("liveCongestion").textContent = payload.congestion.level;
-    document.getElementById("liveCo2").textContent = payload.emissions.co2e || payload.emissions.co2;
+    updateSnapshot(payload);
     
     if (payload.emergency_model_status && payload.emergency_model_status !== "ready" && errorBox) {
-      errorBox.textContent = `Model Status: ${payload.emergency_model_status}`;
-      errorBox.classList.remove("d-none");
+      showError(`Model Status: ${payload.emergency_model_status}`);
     }
-    
-    alertBox.classList.toggle("d-none", !payload.emergency || payload.emergency.length === 0);
-    
+
     if (liveChart) {
       liveChart.data.labels.push((payload.timestamp || "").slice(11, 19));
       liveChart.data.datasets[0].data.push(payload.congestion.congestion_score);
@@ -273,6 +344,7 @@ function initLivePage() {
     const response = await fetch("/api/analyze-image", { method: "POST", body: formData });
     const result = await response.json();
     output.textContent = JSON.stringify(result, null, 2);
+    if (result.ok) updateSnapshot(result.result);
   });
 
   document.getElementById("videoAnalyzeForm")?.addEventListener("submit", async (event) => {
@@ -289,58 +361,98 @@ function initLivePage() {
       if (data.ok && data.result) {
         showVideoResult(data.result);
       } else {
-        alert(data.error || "Analysis failed");
+        showError(data.error || "Analysis failed");
       }
     } catch (e) {
-      alert("Network error: " + e.message);
+      showError("Network error: " + e.message);
     } finally {
       btn.disabled = false;
       btn.innerHTML = originalText;
     }
   });
+
 }
 
 function showVideoResult(res) {
   document.getElementById("vResCongestion").textContent = res.avg_congestion_score;
   document.getElementById("vResDensity").textContent = `${res.avg_density}%`;
-  document.getElementById("vResEmissions").textContent = res.emission_totals.co2e || res.emission_totals.co2;
+  document.getElementById("vResEmissions").textContent = `${res.emission_totals.co2e || res.emission_totals.co2 || 0} g`;
+  document.getElementById("vResFuel").textContent = `${res.fuel_waste_l || 0} L`;
+  document.getElementById("vResPeak").textContent = res.peak_frame?.frame ?? "--";
+  document.getElementById("vResLanes").textContent = `${res.roi_density?.avg_left_lane || 0} / ${res.roi_density?.avg_right_lane || 0}`;
 
   const tbody = document.getElementById("vResTable");
-  tbody.innerHTML = Object.entries(res.vehicle_totals).map(([type, count]) => {
-    // Basic estimation for NOx based on count for the report
-    const co2 = (res.emission_totals.co2 / res.frames_analyzed * count).toFixed(1);
-    return `<tr><td>${type}</td><td>${count}</td><td>${co2}</td><td>--</td></tr>`;
+  const total = Object.values(res.vehicle_totals || {}).reduce((sum, count) => sum + Number(count || 0), 0);
+  tbody.innerHTML = Object.entries(res.vehicle_totals || {}).map(([type, count]) => {
+    const share = total ? `${Math.round((Number(count) / total) * 100)}%` : "0%";
+    return `<tr><td>${type}</td><td>${count}</td><td>${share}</td></tr>`;
   }).join("");
 
   const previews = document.getElementById("vResPreviews");
   previews.innerHTML = (res.preview_frames || []).map(src => 
-    `<img src="${src}" class="rounded border border-secondary" style="height: 100px; width: auto;">`
+    `<img src="${src}" alt="Analyzed preview frame">`
   ).join("");
+
+  const timelineCanvas = document.getElementById("videoTimelineChart");
+  if (timelineCanvas && window.Chart) {
+    if (window.vTimelineChartInstance && typeof window.vTimelineChartInstance.destroy === "function") {
+      window.vTimelineChartInstance.destroy();
+    }
+    window.vTimelineChartInstance = new Chart(timelineCanvas, {
+      type: "line",
+      data: {
+        labels: (res.timeline || []).map((row) => row.frame),
+        datasets: [
+          { label: "Vehicles", data: (res.timeline || []).map((row) => row.total), borderColor: palette.green, backgroundColor: "rgba(34,197,94,.12)", fill: true },
+          { label: "CO2e", data: (res.timeline || []).map((row) => row.co2e), borderColor: palette.amber, backgroundColor: "rgba(245,158,11,.08)", fill: false }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { labels: { boxWidth: 10 } } },
+        scales: { x: { grid: { display: false } }, y: { beginAtZero: true } }
+      }
+    });
+  }
 
   const modal = new bootstrap.Modal(document.getElementById("videoResultModal"));
   modal.show();
 }
 
-async function sendBrowserFrame(video) {
-  if (!video || !video.videoWidth || !video.videoHeight) return;
+async function sendBrowserFrame(video, hooks = {}) {
+  if (window.__browserFrameInFlight) return;
+  if (!video || !video.videoWidth || !video.videoHeight) {
+    hooks.onError?.("Camera preview active; waiting for video size");
+    return;
+  }
+  window.__browserFrameInFlight = true;
+  hooks.onStart?.();
   const canvas = document.createElement("canvas");
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
   const ctx = canvas.getContext("2d");
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
   canvas.toBlob(async (blob) => {
-    if (!blob) return;
-    const formData = new FormData();
-    formData.append("frame", blob, "browser-frame.jpg");
-    const response = await fetch("/api/analyze-browser-frame", { method: "POST", body: formData });
-    const data = await response.json();
-    if (data.ok && data.result) {
-      document.getElementById("snapshotTime").textContent = data.result.timestamp || "--";
-      document.getElementById("liveVehicles").textContent = data.result.congestion.total_count;
-      document.getElementById("liveDensity").textContent = `${data.result.congestion.density}%`;
-      document.getElementById("liveCongestion").textContent = data.result.congestion.level;
-      document.getElementById("liveCo2").textContent = data.result.emissions.co2e || data.result.emissions.co2;
-      document.getElementById("liveAlert").classList.toggle("d-none", !data.result.emergency || data.result.emergency.length === 0);
+    try {
+      if (!blob) {
+        hooks.onError?.("Could not capture browser frame");
+        window.__browserFrameInFlight = false;
+        return;
+      }
+      const formData = new FormData();
+      formData.append("frame", blob, "browser-frame.jpg");
+      const response = await fetch("/api/analyze-browser-frame", { method: "POST", body: formData });
+      const data = await response.json();
+      if (data.ok && data.result) {
+        hooks.onResult?.(data.result);
+      } else {
+        hooks.onError?.(data.error || "Model analysis failed");
+      }
+    } catch (error) {
+      hooks.onError?.(`Frame upload failed: ${error.message}`);
+    } finally {
+      window.__browserFrameInFlight = false;
     }
   }, "image/jpeg", 0.82);
 }

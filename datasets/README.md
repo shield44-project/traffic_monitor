@@ -1,15 +1,86 @@
 # Datasets
 
-This project is software-only and does not include large third-party datasets in
-the repository. Place datasets under this directory.
+This project is software-only and does not vendor large third-party datasets.
+Place downloaded datasets under this directory, or keep them outside the repo
+and point training scripts to their `data.yaml` files.
 
-## Supported Sources
+## Recommended Testing Video Sources
 
-1. UA-DETRAC for general traffic videos and vehicle counts.
-2. AI City Challenge data for multi-camera traffic analysis.
-3. Roboflow emergency vehicle datasets for ambulance, fire truck and police
-   vehicle detection.
-4. Any custom YOLO-format dataset.
+1. AI City Challenge
+   - Real traffic-camera videos and multi-camera city scenarios.
+   - Good for testing live/video upload, congestion and lane density.
+   - Website: `https://www.aicitychallenge.org/`
+   - Current challenge page includes 2026 tasks and dataset access links.
+
+2. UA-DETRAC
+   - Fixed traffic-camera videos for vehicle detection and tracking.
+   - Good for junction-style vehicle counting.
+   - Search: `UA-DETRAC dataset official`.
+
+3. BDD100K
+   - Dashcam road-scene videos with varied weather, time and road types.
+   - Good for general robustness tests.
+   - Search: `BDD100K official download`.
+
+4. CityFlow / AI City Challenge
+   - Multi-camera city traffic benchmark.
+   - Good for future multi-camera expansion.
+   - Paper/search: `CityFlow A City-Scale Benchmark for Multi-Target Multi-Camera Vehicle Tracking and Re-Identification`.
+
+5. BMD-45 CCTV Vehicle Detection
+   - Recent large-scale CCTV traffic dataset direction for developing-city traffic.
+   - Good for training/testing many vehicle categories in dense scenes.
+   - Paper: `https://arxiv.org/abs/2604.24419`
+   - Dataset card: `https://huggingface.co/datasets/iisc-aim/BMD-45`
+
+6. Roboflow Top-View Vehicle Detection / Kaggle traffic datasets
+   - YOLO-format image datasets for fine-tuning.
+   - Good for creating a custom `best.pt`.
+
+7. Pexels or other open-license traffic videos
+   - Useful for short demo clips.
+   - Confirm license before publishing or submitting results.
+
+## Quick Test Video Guidance
+
+For normal CPU testing, use short clips:
+
+```text
+10-60 seconds, 480p or 720p, MP4/H.264 preferred
+```
+
+If a file uploads but no frames decode, convert it:
+
+```bash
+ffmpeg -i input_video.anything -vf scale=1280:-2 -c:v libx264 -preset fast -crf 23 -an test_traffic.mp4
+```
+
+Then upload `test_traffic.mp4` from:
+
+```text
+Live -> Upload and Analyze -> Video Analysis
+```
+
+## Supported Dataset Types
+
+1. General traffic videos for testing: `.mp4`, `.avi`, `.mov`, `.mkv`, `.webm`,
+   `.wmv`, `.3gp`, or anything OpenCV can decode.
+2. YOLO-format vehicle datasets for training a vehicle/traffic `.pt`.
+3. YOLO-format emergency datasets for ambulance, fire truck and police classes.
+4. Historical CSV/synthetic data for traffic forecasting and emissions.
+
+## Suggested Local Layout
+
+```text
+datasets/
+  emergency/
+  traffic_yolo/
+  videos/
+    low_density.mp4
+    heavy_congestion.mp4
+    night_traffic.mp4
+  raw/
+```
 
 ## Emergency YOLO Format
 
@@ -63,3 +134,53 @@ The best checkpoint is copied to:
 ```text
 models/yolo/emergency/best.pt
 ```
+
+## Vehicle YOLO Format
+
+If training a vehicle detector, use standard YOLO layout:
+
+```text
+datasets/traffic_yolo/
+  data.yaml
+  train/images/*.jpg
+  train/labels/*.txt
+  valid/images/*.jpg
+  valid/labels/*.txt
+```
+
+Example `data.yaml`:
+
+```yaml
+path: datasets/traffic_yolo
+train: train/images
+val: valid/images
+names:
+  0: car
+  1: motorcycle
+  2: bus
+  3: truck
+```
+
+The app also supports models whose labels are:
+
+```text
+mobil, motor, truk, vehicle
+```
+
+Install the resulting `.pt` from:
+
+```text
+Models -> Install Vehicle YOLO .pt
+```
+
+## Literature/Report Dataset Notes
+
+In a project report, mention:
+
+- AI City Challenge for real city traffic videos.
+- UA-DETRAC for fixed-camera vehicle detection/tracking.
+- BDD100K for diverse driving-video scenes.
+- CityFlow for multi-camera city traffic.
+- BMD-45 for recent CCTV vehicle detection in dense developing-city traffic.
+- Roboflow/Kaggle top-view vehicle datasets for YOLO-format fine-tuning.
+- Custom emergency vehicle datasets for ambulance/fire truck/police detection.

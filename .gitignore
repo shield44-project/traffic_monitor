@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .venv/
+.venv311/
 venv/
 env/
 .pytest_cache/
@@ -14,6 +15,8 @@ env/
 # Database
 *.db
 *.db-journal
+*.db-shm
+*.db-wal
 
 # Models (large binaries) - keep dirs via .gitkeep, ignore weights
 models/**/*.pt
@@ -25,6 +28,9 @@ models/**/*.json
 reports/generated/
 logs/
 data/*.csv
+data/ultralytics/
+data/matplotlib/
+static/frames/
 samples/*.mp4
 
 # OS

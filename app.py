@@ -41,7 +41,10 @@ from prediction.emission_factors import (
 )
 from prediction.traffic_predictor import TrafficPredictor
 from reports.report_generator import generate_csv, generate_pdf
-from training.download_emergency_model import install_model as install_emergency_model
+from training.download_emergency_model import (
+    install_model as install_emergency_model,
+    install_vehicle_model,
+)
 
 log = get_logger("app")
 
@@ -68,6 +71,8 @@ _live_state = {
     "latest_frame": None,
     "latest_payload": {},
     "error": None,
+    "last_frame_at": None,
+    "mode": None,
 }
 _live_thread: threading.Thread | None = None
 _db_ready = False
@@ -147,6 +152,32 @@ def admin_required(func):
 
 def _json_error(message: str, status: int = 400):
     return jsonify({"ok": False, "error": message}), status
+
+
+def _safe_int(value, default: int, minimum: int = 1, maximum: int | None = None) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+    parsed = max(minimum, parsed)
+    if maximum is not None:
+        parsed = min(maximum, parsed)
+    return parsed
+
+
+def _fuel_waste_liters(total_count: int, congestion_level: str) -> float:
+    idle_minutes = {"Low": 1, "Medium": 3, "High": 6, "Severe": 9}.get(
+        congestion_level,
+        1,
+    )
+    return round(max(0, int(total_count)) * idle_minutes * 0.01, 2)
+
+
+def _is_browser_feed_stale() -> bool:
+    if _live_state.get("mode") != "browser":
+        return False
+    last_frame_at = _live_state.get("last_frame_at")
+    return bool(last_frame_at and time.time() - float(last_frame_at) > 8)
 
 
 @app.errorhandler(TrafficAIError)
@@ -312,6 +343,16 @@ def model_performance():
     return render_template(
         "performance.html",
         metrics=metrics,
+        vehicle_model_exists=Path(config.VEHICLE_MODEL).exists(),
+        vehicle_model_path=config.VEHICLE_MODEL,
+        traffic_density_model_path=config.TRAFFIC_DENSITY_MODEL,
+        reference_vehicle_models=[
+            path for path in (
+                config.SMART_TRAFFIC_MODEL,
+                config.REFERENCE_TRAFFIC_DENSITY_MODEL,
+            )
+            if Path(path).exists()
+        ],
         emergency_model_exists=Path(config.EMERGENCY_MODEL).exists(),
         emergency_model_path=config.EMERGENCY_MODEL,
         lstm_model_exists=Path(config.LSTM_MODEL_PATH).exists(),
@@ -343,6 +384,33 @@ def install_emergency_model_route():
         flash(f"Installed emergency model at {target}.", "success")
     except Exception as exc:
         flash(f"Could not install emergency model: {exc}", "danger")
+    return redirect(url_for("model_performance"))
+
+
+@app.route("/models/vehicle/install", methods=["POST"])
+@login_required
+@admin_required
+def install_vehicle_model_route():
+    url = request.form.get("model_url", "").strip() or None
+    upload = request.files.get("model_file")
+    local_path = None
+    if upload and upload.filename:
+        filename = secure_filename(upload.filename)
+        if not filename.lower().endswith(".pt"):
+            flash("Upload a YOLO .pt file.", "danger")
+            return redirect(url_for("model_performance"))
+        local_path = config.UPLOAD_DIR / filename
+        upload.save(local_path)
+    if not url and not local_path:
+        flash("Provide a trusted model URL or upload a .pt file.", "danger")
+        return redirect(url_for("model_performance"))
+    try:
+        target = install_vehicle_model(url=url, source_file=str(local_path) if local_path else None)
+        global _vehicle_detector
+        _vehicle_detector = None
+        flash(f"Installed vehicle model at {target}.", "success")
+    except Exception as exc:
+        flash(f"Could not install vehicle model: {exc}", "danger")
     return redirect(url_for("model_performance"))
 
 
@@ -431,7 +499,8 @@ def analyze_frame(frame, camera_id: int | None = None, persist: bool = True) -> 
     predictions = [p.as_dict() for p in traffic_predictor.predict(recent)]
 
     annotated = get_vehicle_detector().draw(frame, vehicle_result)
-    annotated = get_emergency_detector().draw(annotated, emergency)
+    if emergency:
+        annotated = get_emergency_detector().draw(annotated, emergency)
     ok, encoded = cv2.imencode(".jpg", annotated, [int(cv2.IMWRITE_JPEG_QUALITY), 82])
     if not ok:
         raise ValidationError("Could not encode frame")
@@ -444,6 +513,13 @@ def analyze_frame(frame, camera_id: int | None = None, persist: bool = True) -> 
         "congestion": congestion.as_dict(),
         "emissions": emissions.as_dict(),
         "predictions": predictions,
+    }
+    payload["impact"] = {
+        "density": congestion.level,
+        "co2e_g": emissions.co2e,
+        "fuel_waste_l": _fuel_waste_liters(congestion.total_count, congestion.level),
+        "left_lane": vehicle_result.roi_density.get("left_lane", {}),
+        "right_lane": vehicle_result.roi_density.get("right_lane", {}),
     }
     if persist:
         _persist_snapshot(payload, camera_id)
@@ -471,6 +547,10 @@ def analyze_video_file(
     score_values = []
     emission_totals: Counter[str] = Counter()
     previews = []
+    timeline = []
+    fuel_waste_total = 0.0
+    roi_lane_totals: Counter[str] = Counter()
+    heavy_lane_frames: Counter[str] = Counter()
 
     try:
         while analyzed < max_items:
@@ -494,10 +574,38 @@ def analyze_video_file(
                 preview = config.FRAME_DIR / f"video_{path.stem}_{frame_index}.jpg"
                 preview.write_bytes(jpg)
                 previews.append(url_for("static", filename=f"frames/{preview.name}"))
+            roi_density = payload["vehicles"].get("roi_density", {})
+            left_lane = roi_density.get("left_lane", {})
+            right_lane = roi_density.get("right_lane", {})
+            roi_lane_totals["left"] += int(left_lane.get("count", 0))
+            roi_lane_totals["right"] += int(right_lane.get("count", 0))
+            if left_lane.get("heavy"):
+                heavy_lane_frames["left"] += 1
+            if right_lane.get("heavy"):
+                heavy_lane_frames["right"] += 1
+            fuel_waste_total += float(payload.get("impact", {}).get("fuel_waste_l", 0))
+            timeline.append(
+                {
+                    "frame": frame_index,
+                    "total": payload["congestion"]["total_count"],
+                    "density": payload["congestion"]["density"],
+                    "score": payload["congestion"]["congestion_score"],
+                    "co2e": payload["emissions"].get("co2e", payload["emissions"].get("co2", 0)),
+                    "left_lane": left_lane.get("count", 0),
+                    "right_lane": right_lane.get("count", 0),
+                }
+            )
             frame_index += 1
     finally:
         cap.release()
 
+    if analyzed == 0:
+        raise ValidationError(
+            f"OpenCV could open {path.name}, but no frames were decoded. "
+            "Try another codec/container or convert the file to H.264 MP4."
+        )
+
+    peak_frame = max(timeline, key=lambda row: row["total"], default={})
     return {
         "video": path.name,
         "sample_every_n_frames": every,
@@ -508,6 +616,15 @@ def analyze_video_file(
         "congestion_levels": dict(levels),
         "emergency_events": emergency_events,
         "emission_totals": {k: round(v, 4) for k, v in emission_totals.items()},
+        "fuel_waste_l": round(fuel_waste_total, 2),
+        "roi_density": {
+            "avg_left_lane": round(roi_lane_totals["left"] / max(1, analyzed), 2),
+            "avg_right_lane": round(roi_lane_totals["right"] / max(1, analyzed), 2),
+            "heavy_left_frames": int(heavy_lane_frames["left"]),
+            "heavy_right_frames": int(heavy_lane_frames["right"]),
+        },
+        "timeline": timeline,
+        "peak_frame": peak_frame,
         "preview_frames": previews,
     }
 
@@ -530,6 +647,7 @@ def _capture_loop(source, camera_id: int | None = None) -> None:
                 payload, jpg = analyze_frame(frame, camera_id=camera_id, persist=True)
                 _live_state["latest_payload"] = payload
                 _live_state["latest_frame"] = jpg
+                _live_state["last_frame_at"] = time.time()
             frame_counter += 1
             time.sleep(0.03)
     except Exception as exc:
@@ -564,6 +682,8 @@ def api_live_start():
             "latest_frame": None,
             "latest_payload": {},
             "error": None,
+            "last_frame_at": None,
+            "mode": "server",
         }
     )
     _live_thread = threading.Thread(target=_capture_loop, args=(source, camera_id), daemon=True)
@@ -581,18 +701,23 @@ def api_live_start():
 @login_required
 def api_live_stop():
     _live_state["running"] = False
+    _live_state["mode"] = None
     return jsonify({"ok": True})
 
 
 @app.route("/api/live/status")
 @login_required
 def api_live_status():
+    if _is_browser_feed_stale():
+        _live_state["running"] = False
     return jsonify(
         {
             "ok": True,
             "running": _live_state["running"],
             "source": _live_state["source"],
             "error": _live_state["error"],
+            "mode": _live_state["mode"],
+            "last_frame_at": _live_state["last_frame_at"],
             "payload": _live_state["latest_payload"],
         }
     )
@@ -637,12 +762,22 @@ def api_analyze_video():
     if not upload:
         return _json_error("Upload a video file with field name 'video'", 400)
     filename = secure_filename(upload.filename or "traffic_video.mp4")
-    if not filename.lower().endswith((".mp4", ".avi", ".mov", ".mkv", ".webm")):
-        return _json_error("Supported video formats: mp4, avi, mov, mkv, webm", 400)
+    if "." not in filename:
+        filename = f"{filename}.mp4"
     path = config.UPLOAD_DIR / filename
     upload.save(path)
-    every = int(request.form.get("every_n_frames") or config.VIDEO_SAMPLE_EVERY_N_FRAMES)
-    max_frames = int(request.form.get("max_frames") or config.VIDEO_MAX_ANALYSIS_FRAMES)
+    every = _safe_int(
+        request.form.get("every_n_frames"),
+        config.VIDEO_SAMPLE_EVERY_N_FRAMES,
+        minimum=1,
+        maximum=300,
+    )
+    max_frames = _safe_int(
+        request.form.get("max_frames"),
+        config.VIDEO_MAX_ANALYSIS_FRAMES,
+        minimum=1,
+        maximum=1000,
+    )
     result = analyze_video_file(path, every_n_frames=every, max_frames=max_frames)
     return jsonify({"ok": True, "result": result})
 
@@ -664,7 +799,12 @@ def api_analyze_browser_frame():
     # Update global live state so dashboard charts/status show browser camera data
     _live_state["latest_payload"] = payload
     _live_state["latest_frame"] = jpg
-    _live_state["running"] = True  # Treat as running while receiving frames
+    _live_state["running"] = True
+    _live_state["source"] = "browser-camera"
+    _live_state["camera_id"] = None
+    _live_state["error"] = None
+    _live_state["last_frame_at"] = time.time()
+    _live_state["mode"] = "browser"
     
     payload["preview_data_url"] = "data:image/jpeg;base64," + __import__("base64").b64encode(jpg).decode("ascii")
     return jsonify({"ok": True, "result": payload})

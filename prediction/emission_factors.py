@@ -84,6 +84,18 @@ EMISSION_FACTORS_G_PER_KM = {
         "ch4": 0.0,
         "n2o": 0.0,
     },
+    "vehicle": {
+        "co2": 275.0,
+        "co": 1.55,
+        "nox": 0.55,
+        "pm25": 0.018,
+        "pm10": 0.032,
+        "hc": 0.15,
+        "voc": 0.13,
+        "so2": 0.008,
+        "ch4": 0.020,
+        "n2o": 0.014,
+    },
 }
 
 # 100-year global warming potentials from IPCC values used by EPA pages.
