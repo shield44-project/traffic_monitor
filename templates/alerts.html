@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Emergency Alerts</h1><p>Ambulance, fire truck and police vehicle detections.</p></div>
+</div>
+<section class="panel">
+  <div class="table-responsive">
+    <table class="table table-hover align-middle">
+      <thead><tr><th>Time</th><th>Type</th><th>Confidence</th><th>Status</th><th></th></tr></thead>
+      <tbody>
+      {% for event in events %}
+        <tr>
+          <td>{{ event.timestamp }}</td>
+          <td><span class="text-danger fw-semibold">{{ event.vehicle_type }}</span></td>
+          <td>{{ "%.3f"|format(event.confidence) }}</td>
+          <td>{{ "Acknowledged" if event.acknowledged else "Open" }}</td>
+          <td class="text-end">
+            {% if not event.acknowledged %}
+            <form action="{{ url_for('acknowledge_alert', event_id=event.id) }}" method="post">
+              <button class="btn btn-sm btn-outline-light" type="submit"><i class="bi bi-check2"></i></button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="5" class="text-secondary">No emergency events recorded</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

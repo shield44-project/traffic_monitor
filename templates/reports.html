@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Reports</h1><p>PDF and CSV exports for review, submission and research appendices.</p></div>
+</div>
+<section class="content-grid two">
+  <div class="panel">
+    <div class="panel-head"><h2>PDF Report</h2><span class="badge text-bg-primary">Traffic + Emissions</span></div>
+    <form action="{{ url_for('export_pdf') }}" method="post">
+      <button class="btn btn-primary" type="submit"><i class="bi bi-download"></i> Export PDF</button>
+    </form>
+  </div>
+  <div class="panel">
+    <div class="panel-head"><h2>CSV Export</h2><span class="badge text-bg-secondary">Raw tables</span></div>
+    <form action="{{ url_for('export_csv') }}" method="post" class="vstack gap-2">
+      <select class="form-select" name="table">
+        {% for name in ["vehicles", "emergency_events", "traffic_data", "emissions", "predictions"] %}
+        <option value="{{ name }}">{{ name }}</option>
+        {% endfor %}
+      </select>
+      <div class="d-flex gap-2">
+        <input class="form-control" name="start" placeholder="Start timestamp">
+        <input class="form-control" name="end" placeholder="End timestamp">
+      </div>
+      <button class="btn btn-outline-light" type="submit"><i class="bi bi-table"></i> Export CSV</button>
+    </form>
+  </div>
+</section>
+<section class="panel mt-4">
+  <div class="panel-head"><h2>Generated Files</h2><span class="text-secondary small">{{ reports|length }} files</span></div>
+  <div class="file-list">
+    {% for report in reports %}
+    <div><i class="bi bi-file-earmark"></i><span>{{ report.name }}</span><small>{{ "%.1f"|format(report.stat().st_size / 1024) }} KB</small></div>
+    {% else %}
+    <div class="text-secondary">No generated reports</div>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

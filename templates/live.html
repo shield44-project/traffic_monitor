@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Live Monitoring</h1>
+    <p>Analyze traffic in real-time using server-side sources or your browser camera.</p>
+  </div>
+</div>
+
+<section class="content-grid live-layout">
+  <div class="panel video-panel">
+    <div class="panel-head">
+      <h2>Camera Feed</h2>
+      <span id="liveState" class="badge text-bg-secondary">Idle</span>
+    </div>
+    <div class="video-frame">
+      <img id="liveFrame" src="{{ url_for('api_live_frame') }}" alt="Live monitoring frame">
+      <video id="browserCamera" class="d-none" autoplay muted playsinline></video>
+    </div>
+    
+    <div class="mt-4">
+      <h5><i class="bi bi-cpu"></i> Server-Side Camera</h5>
+      <p class="text-secondary small">Use cameras connected to the server, RTSP streams, or local files.</p>
+      <form class="live-form d-flex gap-2" id="liveForm">
+        <select class="form-select" name="source" aria-label="Camera source">
+          {% for camera in cameras %}
+          <option value="{{ camera.source }}">{{ camera.name }} - {{ camera.location or camera.source }}</option>
+          {% endfor %}
+          <option value="0">Webcam 0 (Server)</option>
+        </select>
+        <input class="form-control" name="manualSource" placeholder="Manual path/URL">
+        <button class="btn btn-success" id="startLive" type="button"><i class="bi bi-play-fill"></i> Start</button>
+        <button class="btn btn-outline-danger" id="stopLive" type="button"><i class="bi bi-stop-fill"></i> Stop</button>
+      </form>
+    </div>
+
+    <div class="mt-4 pt-3 border-top">
+      <h5><i class="bi bi-webcam"></i> Browser Camera</h5>
+      <p class="text-secondary small">Use your local device/laptop camera or phone via browser.</p>
+      <div class="d-flex flex-wrap gap-2">
+        <button class="btn btn-primary" id="startBrowserCamera" type="button"><i class="bi bi-camera-video"></i> Start Browser Camera</button>
+        <button class="btn btn-outline-danger" id="stopBrowserCamera" type="button"><i class="bi bi-camera-video-off"></i> Stop Browser Camera</button>
+      </div>
+    </div>
+
+    <div id="liveError" class="alert alert-warning d-none mt-3" role="alert"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-head"><h2>Current Snapshot</h2><span id="snapshotTime" class="text-secondary small">--</span></div>
+    <div id="liveAlert" class="alert alert-danger d-none" role="alert">Emergency vehicle detected</div>
+    <div class="snapshot-grid">
+      <div><span>Vehicles</span><strong id="liveVehicles">0</strong></div>
+      <div><span>Density</span><strong id="liveDensity">0%</strong></div>
+      <div><span>Congestion</span><strong id="liveCongestion">Low</strong></div>
+      <div><span>CO2e</span><strong id="liveCo2">0</strong></div>
+    </div>
+    <canvas id="liveChart" height="150"></canvas>
+  </div>
+</section>
+
+<section class="panel mt-4">
+  <div class="panel-head"><h2>Upload & Analyze</h2><span class="text-secondary small">Process local files for full emission reports</span></div>
+  <div class="row g-3">
+    <div class="col-md-6">
+      <form class="p-3 border rounded" id="imageAnalyzeForm" enctype="multipart/form-data">
+        <h6><i class="bi bi-image"></i> Analyze Image</h6>
+        <div class="input-group mt-2">
+          <input class="form-control" type="file" name="image" accept="image/*" required>
+          <button class="btn btn-primary" type="submit">Analyze</button>
+        </div>
+      </form>
+    </div>
+    <div class="col-md-6">
+      <form class="p-3 border rounded" id="videoAnalyzeForm" enctype="multipart/form-data">
+        <h6><i class="bi bi-film"></i> Analyze Video</h6>
+        <div class="input-group mt-2">
+          <input class="form-control" type="file" name="video" accept="video/*" required>
+          <input class="form-control compact-input" type="number" name="every_n_frames" min="1" value="15" title="Sample Rate">
+          <button class="btn btn-primary" type="submit">Analyze</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  <pre class="json-output mt-3 d-none" id="imageResult"></pre>
+</section>
+
+<!-- Video Analysis Result Modal -->
+<div class="modal fade" id="videoResultModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content bg-dark text-light border-secondary">
+      <div class="modal-header border-secondary">
+        <h5 class="modal-title">Video Analysis Report</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3 mb-4">
+          <div class="col-md-4">
+            <div class="p-3 bg-secondary bg-opacity-10 rounded border border-secondary text-center">
+              <span class="text-secondary small d-block">Avg Congestion</span>
+              <strong class="fs-4" id="vResCongestion">--</strong>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <div class="p-3 bg-secondary bg-opacity-10 rounded border border-secondary text-center">
+              <span class="text-secondary small d-block">Traffic Density</span>
+              <strong class="fs-4" id="vResDensity">--</strong>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <div class="p-3 bg-secondary bg-opacity-10 rounded border border-secondary text-center">
+              <span class="text-secondary small d-block">Total CO2e (g)</span>
+              <strong class="fs-4 text-success" id="vResEmissions">--</strong>
+            </div>
+          </div>
+        </div>
+        
+        <h6>Vehicle Breakdown</h6>
+        <div class="table-responsive">
+          <table class="table table-dark table-sm table-borderless">
+            <thead><tr class="text-secondary"><th>Type</th><th>Count</th><th>CO2 (g)</th><th>NOx (mg)</th></tr></thead>
+            <tbody id="vResTable"></tbody>
+          </table>
+        </div>
+
+        <h6 class="mt-3">Preview Frames</h6>
+        <div class="d-flex gap-2 overflow-auto pb-2" id="vResPreviews"></div>
+      </div>
+      <div class="modal-footer border-secondary">
+        <button type="button" class="btn btn-outline-light" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>initLivePage();</script>
+{% endblock %}

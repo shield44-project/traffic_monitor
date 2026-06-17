@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel">
+  <div class="page-head mb-0">
+    <div>
+      <h1>{{ error.code if error else 404 }} Not Found</h1>
+      <p>The requested page is not available.</p>
+    </div>
+    {% if current_user %}
+    <a class="btn btn-primary" href="{{ url_for('home') }}"><i class="bi bi-grid-1x2"></i> Dashboard</a>
+    {% else %}
+    <a class="btn btn-primary" href="{{ url_for('login') }}"><i class="bi bi-box-arrow-in-right"></i> Sign in</a>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Environment / secrets
+.env
+
+# Database
+*.db
+*.db-journal
+
+# Models (large binaries) - keep dirs via .gitkeep, ignore weights
+models/**/*.pt
+models/**/*.onnx
+models/**/*.json
+!models/**/.gitkeep
+
+# Generated artefacts
+reports/generated/
+logs/
+data/*.csv
+samples/*.mp4
+
+# OS
+.DS_Store
+Thumbs.db

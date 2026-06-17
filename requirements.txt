@@ -1,0 +1,39 @@
+# ===========================================================================
+# AI-Powered Smart Traffic System - Python dependencies
+# Target: Python 3.12 (CPU-friendly; GPU used automatically if available)
+# Install: pip install -r requirements.txt
+# ===========================================================================
+
+# --- Computer Vision / Deep Learning ---
+ultralytics==8.3.0          # YOLOv8 (pulls in a compatible torch/torchvision)
+opencv-python-headless==4.10.0.84
+numpy==1.26.4
+pillow==10.4.0
+
+# --- Classical ML / Forecasting ---
+xgboost==2.1.1
+scikit-learn==1.5.2
+pandas==2.2.3
+PyYAML==6.0.2
+
+# --- Web / Dashboard ---
+Flask==3.0.3
+Werkzeug==3.0.4
+python-dotenv==1.0.1
+gunicorn==22.0.0
+
+# --- Reports ---
+reportlab==4.2.2
+
+# --- Testing ---
+pytest==8.3.3
+
+# ---------------------------------------------------------------------------
+# NOTE on PyTorch:
+#   `ultralytics` installs a suitable torch build automatically. If you want an
+#   explicit CPU-only wheel (smaller download), install it FIRST:
+#
+#     pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+#
+#   then run: pip install -r requirements.txt
+# ---------------------------------------------------------------------------

@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Home Dashboard</h1>
+    <p>Network state, emergency activity, congestion, emissions and forecasts.</p>
+  </div>
+  <div class="d-flex gap-2">
+    <form action="{{ url_for('export_pdf') }}" method="post">
+      <button class="btn btn-primary" type="submit"><i class="bi bi-filetype-pdf"></i> PDF</button>
+    </form>
+    <button class="btn btn-outline-light" id="refreshSummary" type="button"><i class="bi bi-arrow-clockwise"></i></button>
+  </div>
+</div>
+
+{% set current = summary.current_congestion %}
+{% set emission = summary.current_emission %}
+<section class="metric-grid">
+  <article class="metric-card">
+    <span>Total Vehicles</span>
+    <strong id="metricVehicles">{{ summary.total_vehicles }}</strong>
+    <small>All recorded counts</small>
+  </article>
+  <article class="metric-card">
+    <span>Emergency Alerts</span>
+    <strong id="metricEmergencies">{{ summary.total_emergencies }}</strong>
+    <small>Detected emergency events</small>
+  </article>
+  <article class="metric-card">
+    <span>Congestion Level</span>
+    <strong id="metricCongestion">{{ current.congestion_level if current else "Low" }}</strong>
+    <small>{{ "%.2f"|format(current.density if current else 0) }}% density</small>
+  </article>
+  <article class="metric-card">
+    <span>Emission Category</span>
+    <strong id="metricEmission">{{ emission.category if emission else "Good" }}</strong>
+    <small>{{ "%.2f"|format(emission.emission_score if emission else 0) }} score</small>
+  </article>
+</section>
+
+<section class="content-grid two">
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Traffic Trend</h2>
+      <span class="badge text-bg-info">Density</span>
+    </div>
+    <canvas id="trafficChart" height="130"></canvas>
+  </div>
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Vehicle Distribution</h2>
+      <span class="badge text-bg-secondary">COCO classes</span>
+    </div>
+    <canvas id="vehicleChart" height="130"></canvas>
+  </div>
+</section>
+
+<section class="content-grid two">
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Forecasts</h2>
+      <button class="btn btn-sm btn-outline-light" id="runForecast" type="button"><i class="bi bi-lightning-charge"></i></button>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-sm align-middle">
+        <thead><tr><th>Time</th><th>Horizon</th><th>Score</th><th>Level</th></tr></thead>
+        <tbody id="predictionRows">
+          {% for row in recent_predictions %}
+          <tr><td>{{ row.timestamp }}</td><td>{{ row.horizon_min }} min</td><td>{{ "%.2f"|format(row.future_congestion) }}</td><td><span class="level-pill">{{ row.future_level }}</span></td></tr>
+          {% else %}
+          <tr><td colspan="4" class="text-secondary">No predictions yet</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Emergency Events</h2>
+      <a class="btn btn-sm btn-outline-light" href="{{ url_for('alerts') }}"><i class="bi bi-arrow-right"></i></a>
+    </div>
+    <div class="event-list">
+      {% for event in recent_emergencies %}
+      <div class="event-row">
+        <span class="event-dot"></span>
+        <div><strong>{{ event.vehicle_type }}</strong><small>{{ event.timestamp }}</small></div>
+        <span>{{ "%.2f"|format(event.confidence) }}</span>
+      </div>
+      {% else %}
+      <div class="text-secondary">No emergency detections</div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+window.initialDashboard = {
+  vehicleTotals: {{ vehicle_totals|tojson }},
+  traffic: {{ recent_traffic|reverse|list|tojson }}
+};
+initDashboardCharts(window.initialDashboard);
+</script>
+{% endblock %}

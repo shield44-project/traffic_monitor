@@ -1,0 +1,8 @@
+path: datasets/emergency
+train: train/images
+val: valid/images
+test: test/images
+names:
+  0: ambulance
+  1: fire_truck
+  2: police

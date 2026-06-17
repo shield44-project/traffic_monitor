@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Emission Analytics</h1><p>Real-world factor-based estimates by pollutant and vehicle class.</p></div>
+</div>
+<section class="metric-grid">
+  <article class="metric-card"><span>Avg CO2e</span><strong>{{ "%.1f"|format(summary.avg_co2e) }}</strong><small>g/km climate equivalent</small></article>
+  <article class="metric-card"><span>Avg NOx</span><strong>{{ "%.2f"|format(summary.avg_nox) }}</strong><small>respiratory irritant</small></article>
+  <article class="metric-card"><span>Avg PM2.5</span><strong>{{ "%.4f"|format(summary.avg_pm25) }}</strong><small>fine particle exposure</small></article>
+  <article class="metric-card"><span>Emission Score</span><strong>{{ "%.1f"|format(summary.avg_score) }}</strong><small>0-100 composite risk</small></article>
+</section>
+<section class="content-grid two">
+  <div class="panel">
+    <div class="panel-head"><h2>Climate Gases</h2><span class="badge text-bg-success">CO2e</span></div>
+    <canvas id="climateEmissionChart" height="165"></canvas>
+  </div>
+  <div class="panel">
+    <div class="panel-head"><h2>Air Quality Pollutants</h2><span class="badge text-bg-danger">NOx / PM / CO</span></div>
+    <canvas id="airQualityEmissionChart" height="165"></canvas>
+  </div>
+</section>
+<section class="content-grid two">
+  <div class="panel">
+    <div class="panel-head"><h2>Vehicle Contribution</h2><span class="badge text-bg-info">By class</span></div>
+    <canvas id="vehicleEmissionChart" height="180"></canvas>
+  </div>
+  <div class="panel">
+    <div class="panel-head"><h2>Pollutant Risk</h2><span class="badge text-bg-warning">Latest average</span></div>
+    <canvas id="gasRiskChart" height="180"></canvas>
+  </div>
+</section>
+
+<section class="panel mt-4">
+  <div class="panel-head">
+    <h2>How Harmful Each Gas Is</h2>
+    <span class="text-secondary small">Health and climate interpretation</span>
+  </div>
+  <div class="harm-grid">
+    {% for key, item in pollutant_health.items() %}
+    <article class="harm-card">
+      <div>
+        <strong>{{ key|upper }}</strong>
+        <span>{{ item.name }}</span>
+      </div>
+      <small class="severity">{{ item.severity }}</small>
+      <p>{{ item.harm }}</p>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="panel mt-4">
+  <div class="panel-head">
+    <h2>Specific Vehicle Emissions</h2>
+    <span class="text-secondary small">Recent database totals by detected vehicle type</span>
+  </div>
+  <div class="table-responsive wide-table">
+    <table class="table table-sm align-middle">
+      <thead><tr><th>Vehicle</th><th>Count</th><th>CO2e</th><th>CO2</th><th>CO</th><th>NOx</th><th>PM2.5</th><th>PM10</th><th>HC</th><th>VOC</th><th>SO2</th><th>CH4</th><th>N2O</th></tr></thead>
+      <tbody>
+      {% for vehicle, values in vehicle_emissions.items() %}
+        <tr>
+          <td>{{ vehicle }}</td><td>{{ values.count|default(0) }}</td>
+          <td>{{ "%.2f"|format(values.co2e|default(0)) }}</td>
+          <td>{{ "%.2f"|format(values.co2|default(0)) }}</td>
+          <td>{{ "%.3f"|format(values.co|default(0)) }}</td>
+          <td>{{ "%.3f"|format(values.nox|default(0)) }}</td>
+          <td>{{ "%.4f"|format(values.pm25|default(0)) }}</td>
+          <td>{{ "%.4f"|format(values.pm10|default(0)) }}</td>
+          <td>{{ "%.3f"|format(values.hc|default(0)) }}</td>
+          <td>{{ "%.3f"|format(values.voc|default(0)) }}</td>
+          <td>{{ "%.4f"|format(values.so2|default(0)) }}</td>
+          <td>{{ "%.4f"|format(values.ch4|default(0)) }}</td>
+          <td>{{ "%.4f"|format(values.n2o|default(0)) }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="13" class="text-secondary">Run live monitoring or sample-data generation to populate vehicle-specific emissions.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="panel mt-4">
+  <div class="panel-head">
+    <h2>Emission Factor Table</h2>
+    <span class="text-secondary small">g/km per vehicle, adjusted by speed and congestion at runtime</span>
+  </div>
+  <div class="table-responsive wide-table">
+    <table class="table table-sm align-middle">
+      <thead><tr><th>Vehicle</th><th>CO2</th><th>CO</th><th>NOx</th><th>PM2.5</th><th>PM10</th><th>HC</th><th>VOC</th><th>SO2</th><th>CH4</th><th>N2O</th></tr></thead>
+      <tbody>
+      {% for vehicle, values in emission_factors.items() %}
+        <tr>
+          <td>{{ vehicle }}</td>
+          <td>{{ values.co2 }}</td><td>{{ values.co }}</td><td>{{ values.nox }}</td>
+          <td>{{ values.pm25 }}</td><td>{{ values.pm10 }}</td><td>{{ values.hc }}</td>
+          <td>{{ values.voc }}</td><td>{{ values.so2 }}</td><td>{{ values.ch4 }}</td><td>{{ values.n2o }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="source-list">
+    {% for source in source_notes %}
+    <a href="{{ source.url }}" target="_blank" rel="noreferrer">{{ source.label }}</a>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="panel mt-4">
+  <div class="panel-head"><h2>Recent Emission Snapshots</h2><span class="text-secondary small">Stored SQLite records</span></div>
+  <div class="table-responsive">
+    <table class="table table-sm align-middle">
+      <thead><tr><th>Timestamp</th><th>CO2e</th><th>CO2</th><th>CO</th><th>NOx</th><th>PM2.5</th><th>PM10</th><th>VOC</th><th>Score</th><th>Category</th></tr></thead>
+      <tbody>
+      {% for row in emissions %}
+        <tr>
+          <td>{{ row.timestamp }}</td>
+          <td>{{ "%.2f"|format(row.co2e|default(row.co2)) }}</td>
+          <td>{{ "%.2f"|format(row.co2) }}</td>
+          <td>{{ "%.3f"|format(row.co|default(0)) }}</td>
+          <td>{{ "%.3f"|format(row.nox) }}</td>
+          <td>{{ "%.4f"|format(row.pm25) }}</td>
+          <td>{{ "%.4f"|format(row.pm10|default(0)) }}</td>
+          <td>{{ "%.3f"|format(row.voc|default(0)) }}</td>
+          <td>{{ "%.2f"|format(row.emission_score) }}</td>
+          <td><span class="level-pill">{{ row.category }}</span></td>
+        </tr>
+      {% else %}
+        <tr><td colspan="10" class="text-secondary">No emission data</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}
+{% block scripts %}
+<script>
+initEmissionCharts(
+  {{ emission_chart_rows|tojson }},
+  {{ summary|tojson }},
+  {{ vehicle_emissions|tojson }},
+  {{ pollutant_health|tojson }}
+);
+</script>
+{% endblock %}

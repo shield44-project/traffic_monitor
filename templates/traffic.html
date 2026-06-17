@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Traffic Analytics</h1><p>Density, congestion score, speed and hotspot trends.</p></div>
+  <button class="btn btn-primary" id="refreshSummary" type="button"><i class="bi bi-arrow-clockwise"></i></button>
+</div>
+<section class="content-grid two">
+  <div class="panel">
+    <div class="panel-head"><h2>Hourly Congestion</h2><span class="badge text-bg-info">24h</span></div>
+    <canvas id="hourlyTrafficChart" height="145"></canvas>
+  </div>
+  <div class="panel">
+    <div class="panel-head"><h2>Hotspot Indicator</h2><span class="badge text-bg-warning">Latest</span></div>
+    {% set latest = traffic[0] if traffic else None %}
+    <div class="hotspot">
+      <div class="heatbar"><span style="width: {{ latest.congestion_score if latest else 0 }}%"></span></div>
+      <strong>{{ latest.congestion_level if latest else "Low" }}</strong>
+      <small>{{ "%.2f"|format(latest.avg_speed if latest else 0) }} km/h average speed</small>
+    </div>
+  </div>
+</section>
+<section class="panel mt-4">
+  <div class="table-responsive">
+    <table class="table table-sm align-middle">
+      <thead><tr><th>Timestamp</th><th>Total</th><th>Density</th><th>Score</th><th>Level</th><th>Speed</th></tr></thead>
+      <tbody>
+      {% for row in traffic %}
+        <tr><td>{{ row.timestamp }}</td><td>{{ row.total_count }}</td><td>{{ "%.2f"|format(row.density) }}%</td><td>{{ "%.2f"|format(row.congestion_score) }}</td><td><span class="level-pill">{{ row.congestion_level }}</span></td><td>{{ "%.2f"|format(row.avg_speed or 0) }}</td></tr>
+      {% else %}
+        <tr><td colspan="6" class="text-secondary">No traffic data</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}
+{% block scripts %}
+<script>initHourlyTraffic({{ hourly|tojson }});</script>
+{% endblock %}

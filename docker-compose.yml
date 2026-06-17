@@ -1,0 +1,13 @@
+services:
+  traffic-ai:
+    build: .
+    ports:
+      - "5000:5000"
+    environment:
+      - SECRET_KEY=change-me
+      - DEBUG=false
+      - DEVICE=cpu
+    volumes:
+      - ./database.db:/app/database.db
+      - ./models:/app/models
+      - ./reports/generated:/app/reports/generated

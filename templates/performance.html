@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Model Performance</h1><p>Training metrics and model availability.</p></div>
+</div>
+<section class="metric-grid">
+  <article class="metric-card"><span>Emergency YOLO</span><strong>{{ "Ready" if emergency_model_exists else "Missing" }}</strong><small>{{ emergency_model_path }}</small></article>
+  <article class="metric-card"><span>LSTM</span><strong>{{ "Ready" if lstm_model_exists else "Baseline" }}</strong><small>traffic forecasting</small></article>
+  <article class="metric-card"><span>XGBoost</span><strong>{{ "Ready" if xgb_models_exist else "Formula" }}</strong><small>emission prediction</small></article>
+  <article class="metric-card"><span>Metrics Files</span><strong>{{ metrics|length }}</strong><small>data/*.json</small></article>
+</section>
+<section class="panel mb-4">
+  <div class="panel-head">
+    <h2>Install Emergency YOLO best.pt</h2>
+    <span class="badge text-bg-danger">No simulation</span>
+  </div>
+  <form action="{{ url_for('install_emergency_model_route') }}" method="post" enctype="multipart/form-data" class="vstack gap-3">
+    <input class="form-control" name="model_url" placeholder="Trusted direct URL to best.pt">
+    <input class="form-control" type="file" name="model_file" accept=".pt">
+    <button class="btn btn-primary align-self-start" type="submit"><i class="bi bi-download"></i> Install Model</button>
+  </form>
+  <p class="text-secondary mt-3 mb-0">Use a YOLOv8 model trained with classes: ambulance, fire_truck, police. The app will not fake emergency detections if this model is missing.</p>
+</section>
+<section class="panel">
+  {% for filename, content in metrics.items() %}
+  <h2>{{ filename }}</h2>
+  <pre class="json-output">{{ content|tojson(indent=2) }}</pre>
+  {% else %}
+  <div class="text-secondary">No evaluation metrics found. Run the training scripts to generate them.</div>
+  {% endfor %}
+</section>
+{% endblock %}

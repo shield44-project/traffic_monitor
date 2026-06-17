@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head">
+  <div><h1>Historical Data</h1><p>Time-range query for stored vehicle, traffic, emergency, emission and prediction records.</p></div>
+</div>
+<section class="panel">
+  <form class="filter-row" method="get">
+    <select class="form-select" name="table">
+      {% for name in ["vehicles", "emergency_events", "traffic_data", "emissions", "predictions"] %}
+      <option value="{{ name }}" {% if table == name %}selected{% endif %}>{{ name }}</option>
+      {% endfor %}
+    </select>
+    <input class="form-control" name="start" value="{{ start or '' }}" placeholder="Start YYYY-MM-DD HH:MM:SS">
+    <input class="form-control" name="end" value="{{ end or '' }}" placeholder="End YYYY-MM-DD HH:MM:SS">
+    <button class="btn btn-primary" type="submit"><i class="bi bi-funnel"></i> Apply</button>
+  </form>
+</section>
+<section class="panel mt-4">
+  <div class="table-responsive">
+    <table class="table table-sm align-middle">
+      <thead>
+      {% if rows %}<tr>{% for key in rows[0].keys() %}<th>{{ key }}</th>{% endfor %}</tr>{% endif %}
+      </thead>
+      <tbody>
+      {% for row in rows %}
+      <tr>{% for value in row.values() %}<td>{{ value }}</td>{% endfor %}</tr>
+      {% else %}
+      <tr><td class="text-secondary">No rows found</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}
