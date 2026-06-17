@@ -416,8 +416,11 @@ function showVideoResult(res) {
     });
   }
 
-  const modal = new bootstrap.Modal(document.getElementById("videoResultModal"));
-  modal.show();
+  const modalEl = document.getElementById("videoResultModal");
+  if (modalEl) {
+    const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+    modal.show();
+  }
 }
 
 async function sendBrowserFrame(video, hooks = {}) {

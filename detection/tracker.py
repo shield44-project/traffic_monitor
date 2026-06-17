@@ -72,7 +72,7 @@ class CentroidTracker:
                 self.disappeared[oid] += 1
                 if self.disappeared[oid] > self.max_disappeared:
                     self._deregister(oid)
-            return {oid: tuple(c.astype(int)) for oid, c in self.objects.items()}
+            return {oid: (int(c[0]), int(c[1])) for oid, c in self.objects.items()}
 
         centroids = np.array(
             [((x1 + x2) / 2.0, (y1 + y2) / 2.0) for x1, y1, x2, y2 in boxes])
@@ -116,4 +116,4 @@ class CentroidTracker:
             for col in set(range(dists.shape[1])) - used_cols:
                 self._register(centroids[col])
 
-        return {oid: tuple(c.astype(int)) for oid, c in self.objects.items()}
+        return {oid: (int(c[0]), int(c[1])) for oid, c in self.objects.items()}

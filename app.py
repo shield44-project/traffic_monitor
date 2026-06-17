@@ -48,11 +48,26 @@ from training.download_emergency_model import (
 
 log = get_logger("app")
 
+import numpy as np
+from flask.json.provider import DefaultJSONProvider
+
 app = Flask(
     __name__,
     template_folder=str(config.TEMPLATES_DIR),
     static_folder=str(config.STATIC_DIR),
 )
+
+class NumpyJSONProvider(DefaultJSONProvider):
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super().default(obj)
+
+app.json = NumpyJSONProvider(app)
 app.config["SECRET_KEY"] = config.SECRET_KEY
 app.config["MAX_CONTENT_LENGTH"] = 750 * 1024 * 1024
 
