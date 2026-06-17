@@ -552,7 +552,11 @@ def analyze_video_file(
         raise ValidationError(f"Could not open uploaded video: {path.name}")
 
     every = max(1, every_n_frames or config.VIDEO_SAMPLE_EVERY_N_FRAMES)
-    max_items = max(1, max_frames or config.VIDEO_MAX_ANALYSIS_FRAMES)
+    max_items = max_frames or config.VIDEO_MAX_ANALYSIS_FRAMES
+    # Use float('inf') for max_items if -1 (all frames)
+    if max_items == -1:
+        max_items = float("inf")
+    
     frame_index = 0
     analyzed = 0
     total_counts: Counter[str] = Counter()
@@ -560,6 +564,7 @@ def analyze_video_file(
     emergency_events = []
     density_values = []
     score_values = []
+    speed_values = []
     emission_totals: Counter[str] = Counter()
     previews = []
     timeline = []
@@ -567,6 +572,9 @@ def analyze_video_file(
     roi_lane_totals: Counter[str] = Counter()
     heavy_lane_frames: Counter[str] = Counter()
 
+    # Aggregate per-vehicle emissions if possible for the breakdown
+    per_type_emissions = {}
+    
     try:
         while analyzed < max_items:
             ok, frame = cap.read()
@@ -575,20 +583,61 @@ def analyze_video_file(
             if frame_index % every != 0:
                 frame_index += 1
                 continue
-            payload, jpg = analyze_frame(frame, camera_id=camera_id, persist=True)
+            
+            # OPTIMIZATION: Call detectors directly to avoid repeated jpeg encoding if not a preview
+            is_preview = len(previews) < 12
+            vehicle_result = get_vehicle_detector().detect(frame)
+            emergency = []
+            try:
+                emergency = get_emergency_detector().detect(frame)
+            except Exception:
+                pass
+            
+            congestion = analyzer.analyze(vehicle_result.counts)
+            emissions = emission_predictor.predict(
+                vehicle_result.counts,
+                congestion.density,
+                congestion.avg_speed,
+            )
+            
+            payload = {
+                "vehicles": vehicle_result.as_dict(),
+                "congestion": congestion.as_dict(),
+                "emissions": emissions.as_dict(),
+                "emergency": [e.as_dict() for e in emergency],
+            }
+            
             analyzed += 1
             for vehicle_type, count in payload["vehicles"]["counts"].items():
                 total_counts[vehicle_type] += int(count)
+                if vehicle_type not in per_type_emissions:
+                    per_type_emissions[vehicle_type] = Counter()
+                
+                # Get breakdown from estimate if available
+                v_breakdown = emissions.vehicle_breakdown.get(vehicle_type, {})
+                for k, v in v_breakdown.items():
+                    if isinstance(v, (int, float)):
+                        per_type_emissions[vehicle_type][k] += float(v)
+
             levels[payload["congestion"]["level"]] += 1
             density_values.append(float(payload["congestion"]["density"]))
             score_values.append(float(payload["congestion"]["congestion_score"]))
+            speed_values.append(float(payload["congestion"]["avg_speed"]))
             emergency_events.extend(payload["emergency"])
+            
             for pollutant in config.EMISSION_POLLUTANTS:
                 emission_totals[pollutant] += float(payload["emissions"].get(pollutant, 0))
-            if len(previews) < 6:
-                preview = config.FRAME_DIR / f"video_{path.stem}_{frame_index}.jpg"
-                preview.write_bytes(jpg)
-                previews.append(url_for("static", filename=f"frames/{preview.name}"))
+            
+            if is_preview:
+                annotated = get_vehicle_detector().draw(frame, vehicle_result)
+                if emergency:
+                    annotated = get_emergency_detector().draw(annotated, emergency)
+                ok_enc, jpg = cv2.imencode(".jpg", annotated, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
+                if ok_enc:
+                    preview = config.FRAME_DIR / f"video_{path.stem}_{frame_index}.jpg"
+                    preview.write_bytes(jpg.tobytes())
+                    previews.append(url_for("static", filename=f"frames/{preview.name}"))
+            
             roi_density = payload["vehicles"].get("roi_density", {})
             left_lane = roi_density.get("left_lane", {})
             right_lane = roi_density.get("right_lane", {})
@@ -598,7 +647,10 @@ def analyze_video_file(
                 heavy_lane_frames["left"] += 1
             if right_lane.get("heavy"):
                 heavy_lane_frames["right"] += 1
-            fuel_waste_total += float(payload.get("impact", {}).get("fuel_waste_l", 0))
+            
+            # Fuel waste: total count * idle factor
+            fuel_waste_total += _fuel_waste_liters(congestion.total_count, congestion.level)
+            
             timeline.append(
                 {
                     "frame": frame_index,
@@ -621,6 +673,12 @@ def analyze_video_file(
         )
 
     peak_frame = max(timeline, key=lambda row: row["total"], default={})
+    
+    # Process per-type emissions for the response
+    processed_type_emissions = {}
+    for vtype, counts in per_type_emissions.items():
+        processed_type_emissions[vtype] = {k: round(v, 2) for k, v in counts.items()}
+
     return {
         "video": path.name,
         "sample_every_n_frames": every,
@@ -628,9 +686,11 @@ def analyze_video_file(
         "vehicle_totals": dict(total_counts),
         "avg_density": round(sum(density_values) / max(1, len(density_values)), 2),
         "avg_congestion_score": round(sum(score_values) / max(1, len(score_values)), 2),
+        "avg_speed": round(sum(speed_values) / max(1, len(speed_values)), 2),
         "congestion_levels": dict(levels),
         "emergency_events": emergency_events,
         "emission_totals": {k: round(v, 4) for k, v in emission_totals.items()},
+        "type_emission_totals": processed_type_emissions,
         "fuel_waste_l": round(fuel_waste_total, 2),
         "roi_density": {
             "avg_left_lane": round(roi_lane_totals["left"] / max(1, analyzed), 2),

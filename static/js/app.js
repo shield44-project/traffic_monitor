@@ -376,22 +376,47 @@ function initLivePage() {
 function showVideoResult(res) {
   document.getElementById("vResCongestion").textContent = res.avg_congestion_score;
   document.getElementById("vResDensity").textContent = `${res.avg_density}%`;
+  document.getElementById("vResSpeed").textContent = `${res.avg_speed || 0} km/h`;
   document.getElementById("vResEmissions").textContent = `${res.emission_totals.co2e || res.emission_totals.co2 || 0} g`;
   document.getElementById("vResFuel").textContent = `${res.fuel_waste_l || 0} L`;
-  document.getElementById("vResPeak").textContent = res.peak_frame?.frame ?? "--";
+  document.getElementById("vResPeak").textContent = `Frame ${res.peak_frame?.frame ?? "--"} (${res.peak_frame?.total ?? 0} vehicles)`;
   document.getElementById("vResLanes").textContent = `${res.roi_density?.avg_left_lane || 0} / ${res.roi_density?.avg_right_lane || 0}`;
 
   const tbody = document.getElementById("vResTable");
   const total = Object.values(res.vehicle_totals || {}).reduce((sum, count) => sum + Number(count || 0), 0);
   tbody.innerHTML = Object.entries(res.vehicle_totals || {}).map(([type, count]) => {
     const share = total ? `${Math.round((Number(count) / total) * 100)}%` : "0%";
-    return `<tr><td>${type}</td><td>${count}</td><td>${share}</td></tr>`;
+    const co2e = res.type_emission_totals?.[type]?.co2e || "--";
+    return `<tr><td>${type}</td><td>${count}</td><td>${share}</td><td>${co2e} g</td></tr>`;
   }).join("");
+
+  const gasBox = document.getElementById("vResGases");
+  if (gasBox && res.emission_totals) {
+    const skip = ["co2e", "co2", "emission_score"];
+    // List of harmful gases to emphasize
+    const harmfulGases = {
+      "nox": "Nitrogen Oxides (Toxic)",
+      "pm25": "PM2.5 (Fine Dust)",
+      "pm10": "PM10 (Coarse Dust)",
+      "co": "Carbon Monoxide (Poisonous)",
+      "voc": "VOCs (Smog precursor)",
+      "so2": "Sulfur Dioxide (Irritant)",
+      "ch4": "Methane (Greenhouse)",
+      "n2o": "Nitrous Oxide (Greenhouse)",
+      "hc": "Hydrocarbons"
+    };
+
+    gasBox.innerHTML = Object.entries(res.emission_totals)
+      .filter(([k]) => !skip.includes(k) && typeof res.emission_totals[k] === "number")
+      .map(([k, v]) => `<div><span>${harmfulGases[k] || k.toUpperCase()}</span><strong>${v.toFixed(4)} g</strong></div>`)
+      .join("");
+  }
 
   const previews = document.getElementById("vResPreviews");
   previews.innerHTML = (res.preview_frames || []).map(src => 
-    `<img src="${src}" alt="Analyzed preview frame">`
+    `<img src="${src}" alt="Analyzed preview frame" style="cursor: pointer;" onclick="openPreview('${src}')">`
   ).join("");
+
 
   const timelineCanvas = document.getElementById("videoTimelineChart");
   if (timelineCanvas && window.Chart) {
@@ -419,6 +444,15 @@ function showVideoResult(res) {
   const modalEl = document.getElementById("videoResultModal");
   if (modalEl) {
     const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+    modal.show();
+  }
+}
+
+function openPreview(src) {
+  const modalImg = document.getElementById("previewModalImage");
+  if (modalImg) {
+    modalImg.src = src;
+    const modal = new bootstrap.Modal(document.getElementById("previewImageModal"));
     modal.show();
   }
 }

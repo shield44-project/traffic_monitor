@@ -67,6 +67,19 @@
           <div><span>Last analyzed</span><strong id="browserLastAnalyzed">--</strong></div>
         </div>
       </div>
+
+      <!-- New IP Camera Instruction Card -->
+      <div class="source-card border-info">
+        <div class="text-info">
+          <h3><i class="bi bi-broadcast"></i> Use Phone without URL</h3>
+          <p>Don't want to open this URL on your phone? Use an <strong>IP Camera</strong> app instead.</p>
+        </div>
+        <ul class="small text-secondary ps-3 mb-2">
+          <li>Install "IP Webcam" (Android) or "iVCam" (iOS).</li>
+          <li>Start the stream in the app.</li>
+          <li>Paste the provided <code>http://...</code> or <code>rtsp://...</code> URL into the <strong>Manual Source</strong> box above.</li>
+        </ul>
+      </div>
     </div>
   </div>
 
@@ -132,7 +145,7 @@
       <input class="form-control" type="file" name="video" accept="video/*,.avi,.mp4,.mov,.mkv,.webm,.m4v,.mpeg,.mpg,.3gp,.wmv" required>
       <div class="mini-inputs">
         <label>Sample every <input class="form-control" type="number" name="every_n_frames" min="1" value="15"></label>
-        <label>Max frames <input class="form-control" type="number" name="max_frames" min="1" value="120"></label>
+        <label>Max frames (-1 for all) <input class="form-control" type="number" name="max_frames" min="-1" value="120"></label>
       </div>
       <button class="btn btn-primary" type="submit"><i class="bi bi-play-btn"></i> Analyze Video</button>
     </form>
@@ -151,19 +164,24 @@
         <div class="report-grid mb-4">
           <div><span>Avg Congestion</span><strong id="vResCongestion">--</strong></div>
           <div><span>Traffic Density</span><strong id="vResDensity">--</strong></div>
-          <div><span>Total CO2e</span><strong id="vResEmissions">--</strong></div>
-          <div><span>Fuel Waste</span><strong id="vResFuel">--</strong></div>
-          <div><span>Peak Frame</span><strong id="vResPeak">--</strong></div>
+          <div><span>Avg Speed</span><strong id="vResSpeed">--</strong> <small class="text-secondary">estimated km/h</small></div>
+          <div><span>Total CO2e</span><strong id="vResEmissions">--</strong> <small class="text-secondary">total for sampled frames</small></div>
+          <div><span>Fuel Waste</span><strong id="vResFuel">--</strong> <small class="text-secondary">total idle waste (all vehicles)</small></div>
+          <div><span>Peak Frame</span><strong id="vResPeak">--</strong> <small class="text-secondary">highest vehicle count at frame X</small></div>
           <div><span>Lane Balance</span><strong id="vResLanes">--</strong></div>
         </div>
         <div class="content-grid two">
           <div>
-            <h6>Vehicle Breakdown</h6>
+            <h6>Vehicle & Emission Breakdown</h6>
             <div class="table-responsive">
               <table class="table table-dark table-sm table-borderless">
-                <thead><tr class="text-secondary"><th>Type</th><th>Count</th><th>Share</th></tr></thead>
+                <thead><tr class="text-secondary"><th>Type</th><th>Count</th><th>Share</th><th>CO2e (g)</th></tr></thead>
                 <tbody id="vResTable"></tbody>
               </table>
+            </div>
+            <h6 class="mt-3">Gaseous Pollutants (Total)</h6>
+            <div class="report-grid" id="vResGases">
+              <!-- JS will fill this -->
             </div>
           </div>
           <div>
@@ -173,11 +191,26 @@
             </div>
           </div>
         </div>
-        <h6 class="mt-3">Preview Frames</h6>
+        <h6 class="mt-3">Preview Frames <small class="text-secondary">(Click to view full size)</small></h6>
         <div class="preview-strip" id="vResPreviews"></div>
       </div>
       <div class="modal-footer border-secondary">
         <button type="button" class="btn btn-outline-light" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal for viewing full-size preview frames -->
+<div class="modal fade" id="previewImageModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-centered">
+    <div class="modal-content glass-modal text-light">
+      <div class="modal-header border-secondary">
+        <h5 class="modal-title">Frame Preview</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body p-0 text-center">
+        <img id="previewModalImage" src="" alt="Full size preview" style="max-width: 100%; height: auto; border-radius: 0 0 8px 8px;">
       </div>
     </div>
   </div>
